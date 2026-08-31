@@ -142,11 +142,18 @@ def _load_logos(abbrs, td):
     return cache
 
 
-def _team_meta(abbrs):
-    """abbr -> {name, color, conf, div, logo} for display."""
+def _team_meta(abbrs, with_logos=True):
+    """abbr -> {name, color, conf, div, logo} for display.
+
+    With ``with_logos=False`` no logo is fetched or embedded and every team's
+    ``logo`` is ``None``. The template already renders that case: a team-colour
+    tile carrying the abbreviation, with the logo image overlaid only when one
+    is present. That build carries no NFL club marks and is therefore safe to
+    publish; it also needs neither Pillow nor network access for logos.
+    """
     import nfl_data_py as nfl
     td = nfl.import_team_desc().set_index("team_abbr")
-    logos = _load_logos(abbrs, td)
+    logos = _load_logos(abbrs, td) if with_logos else {}
 
     def meta(ab):
         base = dict(abbr=ab, name=ab, color="#33507f", conf="", div="")
@@ -160,12 +167,14 @@ def _team_meta(abbrs):
     return {a: meta(a) for a in abbrs}
 
 
-def build_payload(cache=None, generated="today", train_through=predict.TRAIN_THROUGH):
+def build_payload(cache=None, generated="today", train_through=predict.TRAIN_THROUGH,
+                  with_logos=True):
     """Assemble the web payload: backend predictions + team visuals."""
     records, meta = predict.predict_games(cache=cache, generated=generated,
                                           train_through=train_through)
     teams = sorted({g["home"] for g in records} | {g["away"] for g in records})
-    return dict(meta=meta, teams=_team_meta(teams), games=records)
+    return dict(meta=meta, teams=_team_meta(teams, with_logos=with_logos),
+                games=records)
 
 
 def main():
@@ -174,14 +183,26 @@ def main():
     ap.add_argument("--generated", default=None, help="date stamp for the footer")
     ap.add_argument("--train-through", type=int, default=predict.TRAIN_THROUGH,
                     help="last season used for training; later seasons are shown")
-    ap.add_argument("--out", default=os.path.join(HERE, "index.html"))
+    ap.add_argument("--no-logos", action="store_true",
+                    help="build without NFL club logos (team-colour chips with "
+                         "abbreviations instead). This is the variant that is "
+                         "tracked in git and safe to publish.")
+    ap.add_argument("--out", default=None,
+                    help="output path (default: index.html, or "
+                         "index_no_logos.html with --no-logos)")
     args = ap.parse_args()
 
     from datetime import date
     stamp = args.generated or date.today().isoformat()
 
+    stem = "index_no_logos" if args.no_logos else "index"
+    out_path = args.out or os.path.join(HERE, f"{stem}.html")
+    preds_path = os.path.join(
+        HERE, "preds_no_logos.json" if args.no_logos else "preds.json")
+
     payload = build_payload(cache=args.cache, generated=stamp,
-                            train_through=args.train_through)
+                            train_through=args.train_through,
+                            with_logos=not args.no_logos)
     data_json = json.dumps(payload, separators=(",", ":"))
 
     with open(os.path.join(HERE, "template.html"), encoding="utf-8") as f:
@@ -189,12 +210,12 @@ def main():
     html = html.replace("/*__DATA__*/", data_json)
     html = html.replace("/*__FONTS__*/", _load_fonts())
 
-    with open(args.out, "w", encoding="utf-8") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
-    with open(os.path.join(HERE, "preds.json"), "w", encoding="utf-8") as f:
+    with open(preds_path, "w", encoding="utf-8") as f:
         f.write(data_json)
 
-    print(f"wrote {args.out}  ({len(payload['games'])} games, "
+    print(f"wrote {out_path}  ({len(payload['games'])} games, "
           f"{len(payload['teams'])} teams, {len(html)//1024} KB)")
     print(f"trained through {payload['meta']['train_through']}, "
           f"showing seasons {payload['meta']['display_seasons']}")

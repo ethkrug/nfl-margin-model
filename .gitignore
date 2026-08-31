@@ -4,13 +4,17 @@ nfl_margin_model/pro-bowl/*.csv
 nfl_margin_model/pro-bowl/*.json
 
 # --- Generated frontend artifacts ------------------------------------------
-# Built by `python -m nfl_margin_model.frontend.generate`. Not tracked because
-# they embed NFL club logos, which are trademarks of their owners and are not
-# ours to redistribute. generate.py refetches them at build time.
+# The logo-bearing builds are NOT tracked: they embed NFL club logos, which are
+# trademarks of their owners and are not ours to redistribute. Build them with
+# `python -m nfl_margin_model.frontend.generate` (logos are refetched then).
 nfl_margin_model/frontend/index.html
 nfl_margin_model/frontend/index_offline.html
 nfl_margin_model/frontend/logos_cache.json
 nfl_margin_model/frontend/preds.json
+# The `--no-logos` builds ARE tracked and publishable -- they carry no club
+# marks, only team colours and abbreviations:
+#   nfl_margin_model/frontend/index_no_logos.html
+#   nfl_margin_model/frontend/preds_no_logos.json
 
 # --- Cached nflverse pulls -------------------------------------------------
 *.parquet

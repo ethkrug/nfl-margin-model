@@ -42,10 +42,28 @@ NFL club marks and the artwork expressing them belong to the National Football
 League and its member clubs. They are not this project's to license, and no
 notice or disclaimer would change that — so rather than redistribute them under
 an MIT banner that cannot cover them, this repository simply does not carry them.
-Each build fetches its own copies, which is a use for identification only and
-implies no endorsement by or affiliation with the NFL or any club.
+Each local build fetches its own copies, which is a use for identification only
+and implies no endorsement by or affiliation with the NFL or any club.
 
-The following are generated locally and are **not** tracked in git:
+So the frontend ships in two variants:
+
+| Build | Command | Tracked? |
+|---|---|---|
+| **No logos** — team-colour tiles with abbreviations | `generate --no-logos` | **yes**, safe to publish |
+| **With logos** — club marks embedded | `generate` | no, local only |
+
+They are the same page: `teamTile` in `template.html` always draws the colour
+tile and abbreviation, and overlays the logo image only when one is present, so
+the published variant is the design minus the marks rather than a fallback.
+
+Tracked and publishable:
+
+```
+nfl_margin_model/frontend/index_no_logos.html
+nfl_margin_model/frontend/preds_no_logos.json
+```
+
+Generated locally and **not** tracked:
 
 ```
 nfl_margin_model/frontend/index.html

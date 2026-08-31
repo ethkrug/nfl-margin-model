@@ -230,20 +230,29 @@ opens on any machine, offline, with no install. Each week is a ledger of games
 showing the model's line, the win-probability split, the market line, and an
 expandable per-game panel.
 
-You build it rather than download it:
+It builds in two variants:
 
 ```bash
+# published variant: team-colour tiles with abbreviations, no club marks
+python -m nfl_margin_model.frontend.generate --no-logos
+
+# local variant: the same page with each club's logo embedded
 python -m nfl_margin_model.frontend.generate
 ```
 
-The built page and its caches are **not tracked in git** — they embed NFL club
-logos, which are trademarks of their owners and not this project's to
-redistribute (see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)). The build
-fetches its own copies, so the first run needs network access; afterwards the
-caches make it offline-repeatable.
+Only the `--no-logos` build is tracked here
+([`index_no_logos.html`](nfl_margin_model/frontend/index_no_logos.html)). NFL
+club logos are trademarks of their owners and not this project's to
+redistribute, so the logo build stays local and fetches its own copies — see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). It is the same design either
+way: the template draws the colour tile and abbreviation, and overlays a logo
+only when one is present.
 
-Once built, send the file to someone, or host `index.html` + `preds.json` on any
-static host so recipients pull your latest numbers on refresh. Full details in
+The published variant needs no image dependencies at all, so it builds from a
+fresh clone with nothing but the tracked font cache. Once built, send the file
+to someone, or host it with its `preds.json` on any static host so recipients
+pull your latest numbers on refresh — `--no-logos --out docs/index.html` puts a
+publishable page where GitHub Pages can serve it. Full details in
 [`nfl_margin_model/frontend/README.md`](nfl_margin_model/frontend/README.md).
 
 `TRAIN_THROUGH` in `predict.py` controls the training window — the model trains on
