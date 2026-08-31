@@ -207,13 +207,17 @@ def tile(abbr, teams):
     logo = t.get("logo")
     out = ('<div style="width:44px;height:44px;flex:0 0 44px;border-radius:10px;'
            "display:grid;place-items:center;background:%s1f;border:1px solid %s66;"
-           'position:relative;overflow:hidden">' % (c, c))
-    out += ('<span style="font-family:%s;font-size:12px;font-weight:700;'
-            'color:#93a7c4">%s</span>' % (MONO, esc(abbr)))
+           'overflow:hidden">' % (c, c))
+    # Abbreviation is the fallback for a missing logo, never a layer behind one:
+    # club logos are transparent PNGs and the text showed through. Mirrors
+    # teamTile() in template.html -- change both together.
     if logo:
-        out += ('<img src="%s" alt="" style="position:absolute;inset:4px;'
+        out += ('<img src="%s" alt="%s" style="'
                 "width:calc(100%% - 8px);height:calc(100%% - 8px);"
-                'object-fit:contain">' % logo)
+                'object-fit:contain">' % (logo, esc(abbr)))
+    else:
+        out += ('<span style="font-family:%s;font-size:12px;font-weight:700;'
+                'color:#93a7c4">%s</span>' % (MONO, esc(abbr)))
     return out + "</div>"
 
 
@@ -656,7 +660,15 @@ __RADIOS__
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--preds", default=os.path.join(HERE, "preds.json"))
+    # preds.json is the logo build and is untracked, so a fresh clone may only
+    # have the tracked logo-free payload. Prefer the former, fall back to the
+    # latter, rather than failing on a missing file.
+    _default_preds = os.path.join(HERE, "preds.json")
+    if not os.path.exists(_default_preds):
+        _no_logos = os.path.join(HERE, "preds_no_logos.json")
+        if os.path.exists(_no_logos):
+            _default_preds = _no_logos
+    ap.add_argument("--preds", default=_default_preds)
     ap.add_argument("--out", default=os.path.join(HERE, "index_offline.html"))
     args = ap.parse_args()
 

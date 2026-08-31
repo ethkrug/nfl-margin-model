@@ -198,9 +198,14 @@
 
   function teamTile(abbr, side) {
     const c = color(abbr), l = logo(abbr);
-    return '<div style="width: 44px; height: 44px; flex: 0 0 44px; border-radius: 10px; display: grid; place-items: center; background: ' + c + '1f; border: 1px solid ' + c + '66; position: relative; overflow: hidden;">'
-      + '<span style="font-family: \'JetBrains Mono\', monospace; font-size: 12px; font-weight: 700; color: #93a7c4;">' + esc(abbr) + '</span>'
-      + (l ? '<img src="' + l + '" alt="" style="position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px); object-fit: contain;">' : '')
+    // The abbreviation is the FALLBACK for a logo, not a backdrop for it: club
+    // logos are transparent PNGs, so drawing both left the text showing through
+    // the mark. Exactly one of the two is rendered.
+    const inner = l
+      ? '<img src="' + l + '" alt="' + esc(abbr) + '" style="width: calc(100% - 8px); height: calc(100% - 8px); object-fit: contain;">'
+      : '<span style="font-family: \'JetBrains Mono\', monospace; font-size: 12px; font-weight: 700; color: #93a7c4;">' + esc(abbr) + '</span>';
+    return '<div style="width: 44px; height: 44px; flex: 0 0 44px; border-radius: 10px; display: grid; place-items: center; background: ' + c + '1f; border: 1px solid ' + c + '66; overflow: hidden;">'
+      + inner
       + '</div>';
   }
 
