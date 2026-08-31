@@ -79,6 +79,58 @@ def _new_depth_to_old(new, schedules):
     })
 
 
+# Fallback if team_desc cannot be reached; the live mapping is derived below.
+TEAM_CODE_FALLBACK = {"OAK": "LV", "SD": "LAC", "STL": "LA", "LAR": "LA"}
+_TEAM_CODE_MAP = None
+
+
+def team_code_map(schedules=None):
+    """Map every historical club code to the franchise's CURRENT code.
+
+    Depth charts carry the code a franchise used at the time (OAK/SD/STL) while
+    play-by-play and schedules use the current one (LV/LAC/LA), so an unmapped
+    join on team silently misses a decade of games for relocated franchises.
+
+    The mapping is derived rather than hardcoded: nflverse's ``team_desc`` gives
+    each franchise a ``team_id`` that survives relocation (the Raiders are 2520
+    as both OAK and LV), so every code sharing a ``team_id`` is the same club.
+    Which of them is "current" is taken from the schedule itself, so a future
+    relocation is picked up with no code change.
+    """
+    global _TEAM_CODE_MAP
+    if _TEAM_CODE_MAP is not None:
+        return _TEAM_CODE_MAP
+    if schedules is None or not len(schedules):
+        # No schedule to date the codes with -- do not guess, use the known map.
+        return dict(TEAM_CODE_FALLBACK)
+    try:
+        td = nfl.import_team_desc()[["team_abbr", "team_id"]].dropna()
+        used = pd.concat([
+            schedules[["season", "home_team"]].rename(columns={"home_team": "t"}),
+            schedules[["season", "away_team"]].rename(columns={"away_team": "t"}),
+        ]).dropna()
+        # Canonical = the code the franchise used MOST RECENTLY. Frequency is the
+        # wrong test: the schedule itself uses the historical code for historical
+        # seasons, so OAK outnumbers LV over 2010-2025 and picking the commonest
+        # would map the live code back onto the retired one.
+        last_season = used.groupby("t")["season"].max()
+        mapping = {}
+        for _, g in td.groupby("team_id"):
+            abbrs = sorted(set(g["team_abbr"]))
+            seen = [a for a in abbrs if a in last_season.index]
+            if len(abbrs) < 2 or not seen:
+                continue
+            canon = max(seen, key=lambda a: last_season[a])
+            for a in abbrs:
+                if a != canon:
+                    mapping[a] = canon
+        _TEAM_CODE_MAP = mapping or dict(TEAM_CODE_FALLBACK)
+    except Exception as exc:  # offline / schema change -> keep the known aliases
+        console.info(f"team code map: falling back to static aliases ({exc})")
+        _TEAM_CODE_MAP = dict(TEAM_CODE_FALLBACK)
+    return _TEAM_CODE_MAP
+
+
 def load_depth_charts_unified(years, schedules):
     """Load depth charts across ``years`` in either schema, unified to the old one.
 
@@ -87,6 +139,7 @@ def load_depth_charts_unified(years, schedules):
     rest of the pipeline sees one consistent (season, week, ...) schema.
     """
     years = list(years)
+    team_code_map(schedules)   # warm the cache while a schedule is in hand
     old_years = [y for y in years if y < DEPTH_NEW_FORMAT_FROM]
     new_years = [y for y in years if y >= DEPTH_NEW_FORMAT_FROM]
     frames = []

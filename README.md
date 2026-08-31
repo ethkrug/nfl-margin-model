@@ -17,11 +17,11 @@ Walk-forward holdouts, at the team-game level (`python -m nfl_margin_model.evalu
 
 | Holdout season | Trained on | n | RMSE | Mean abs. error | Straight-up winners |
 |---|---|---|---|---|---|
-| 2024 | 2010–2023 | 570 | 12.60 | 9.83 pts | 71.6% |
-| 2025 | 2010–2024 | 570 | 12.45 | 9.81 pts | 66.3% |
-| **Pooled** | — | **1,140** | **12.52** | **9.82 pts** | **68.9%** |
+| 2024 | 2010–2023 | 570 | 12.70 | 9.87 pts | 70.0% |
+| 2025 | 2010–2024 | 570 | 12.64 | 9.98 pts | 64.6% |
+| **Pooled** | — | **1,140** | **12.67** | **9.93 pts** | **67.3%** |
 
-169 features, 285 games per season, each contributing one row per team.
+167 features, 285 games per season, each contributing one row per team.
 
 ### Reproducing these numbers
 
@@ -40,8 +40,8 @@ these are the numbers a fresh clone actually produces:
 
 | | RMSE (2024 / 2025 / pooled) | MAE | Winners |
 |---|---|---|---|
-| With Pro Bowl data | 12.60 / 12.45 / **12.52** | 9.82 | 68.9% |
-| Without (fresh clone) | 12.66 / 12.49 / **12.58** | 9.85 | 68.9% |
+| With Pro Bowl data | 12.70 / 12.64 / **12.67** | 9.93 | 67.3% |
+| Without (fresh clone) | 12.78 / 12.69 / **12.73** | 9.97 | 67.3% |
 
 So a clone lands **0.06 RMSE worse** pooled, and picks **exactly the same
 winners** — the Pro Bowl correction is gated so it can sharpen a margin but never
@@ -138,6 +138,25 @@ form. The right weight differs by phase — weeks 2–4 have a 1–3 game sample
 want a strong prior (4×), while from week 5 on the current season is reliable and
 a light prior (1×) wins. The prior falls out entirely once the window fills.
 
+**The quarterback is the one the depth chart named, not the one who played.**
+Which QB ends up taking the most dropbacks is only knowable after kickoff, so
+choosing him to represent the team leaks the game into its own feature. The
+published depth chart answers the same question from information available
+beforehand, and the injury report handles the case where the named starter is
+ruled out. A QB1 who is named but does not play still has his form fetched, as
+of the state left by his own most recent start.
+
+Building each QB's *history* from whoever actually threw is a different matter
+and stays as it is — those box scores already exist when the current game kicks
+off, and a game's own EPA never feeds its own feature.
+
+This costs accuracy and is worth it: **+0.15 pooled RMSE and −1.6pp on winners**
+against selecting by dropbacks. Two features went with it — `qb_depth_order` and
+`is_designated_starter` are both computed from who actually played, so neither
+can be a model input; they survive as diagnostics. What remains is what a real
+pre-game forecast could have used, so the numbers at the top are lower than they
+would otherwise be, and they are the ones that would hold up live.
+
 **Quarterback rating with shrinkage.** Starters come from the weekly depth chart,
 cross-checked against the injury report, so a ruled-out QB1 correctly hands the
 row to the backup. A QB's rolling EPA is shrunk toward a replacement-level
@@ -154,7 +173,7 @@ version that kept regressing through five starts damaged the mid-season weeks.
 **Pro Bowl absence correction.** Teams missing players with Pro Bowl pedigree
 underperform the model by a real margin (~2.4 points when two or more are out),
 but the situation is far too rare (~6% of team-games) for a depth-2 ensemble to
-isolate among 169 features — fed in as tree inputs, those columns are
+isolate among 167 features — fed in as tree inputs, those columns are
 null-to-harmful. So the residual is removed explicitly instead, with a linear
 slope fit on **out-of-fold** residuals pooled across many seasons. It is gated
 (small imbalances are left untouched) and may never flip which team is favoured.
@@ -176,6 +195,9 @@ constraint the code is most careful about:
 - the projected upcoming season is purely additive — verified by building the
   frame both ways and diffing: appending it changes **0 feature cells across all
   8,694 already-played team-game rows**, and only adds 32 new ones;
+- the QB representing a game is the one named pre-game, never the one who turned
+  out to play most (see above), and the two features derived from who actually
+  played are excluded from the model;
 - depth-chart club codes are normalised to the current franchise codes before
   any join. nflverse keeps the historical code (`OAK`/`SD`/`STL`) while
   play-by-play uses the current one, so an unmapped join silently misses 374
@@ -192,7 +214,7 @@ constraint the code is most careful about:
 
 ## The model
 
-A deliberately small, heavily-regularized XGBoost regressor — 169 features on
+A deliberately small, heavily-regularized XGBoost regressor — 167 features on
 ~7,000 team-games rewards restraint over capacity:
 
 ```python

@@ -45,18 +45,18 @@ If this directory holds no exports, `data.load_pro_bowlers` logs a line saying s
 and returns empty. Every `pb_*` feature is then zero, the Pro Bowl absence
 correction fits a slope of exactly 0.000 and becomes a no-op, and the pipeline
 runs end to end and trains normally. Feature count and frame shape are unchanged
-(169 features either way), so the comparison below is like for like.
+(167 features either way), so the comparison below is like for like.
 
 Measured on the same walk-forward evaluation (`python -m nfl_margin_model.evaluate`),
 the only difference is a small loss of accuracy:
 
 | | 2024 RMSE | 2025 RMSE | Pooled RMSE | Pooled MAE | Winners |
 |---|---|---|---|---|---|
-| With these exports | 12.60 | 12.45 | **12.52** | 9.82 | 68.9% |
-| Without them | 12.66 | 12.49 | **12.58** | 9.85 | 68.9% |
+| With these exports | 12.70 | 12.64 | **12.67** | 9.93 | 67.3% |
+| Without them | 12.78 | 12.69 | **12.73** | 9.97 | 67.3% |
 
 **+0.06 pooled RMSE, and identical straight-up winners** — identical per season
-too, 71.6% on 2024 and 66.3% on 2025 either way. The winners column matches
+too, 70.0% on 2024 and 64.6% on 2025 either way. The winners column matches
 exactly rather than approximately because `PB_CORRECTION_NO_FLIP` forbids
 the adjustment from carrying a prediction across zero — it can sharpen a margin,
 never change who is favoured. So without this data you reproduce every

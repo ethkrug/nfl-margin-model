@@ -30,7 +30,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import config, console
+from . import config, console, data
 
 
 def _coalesce(df, *candidates):
@@ -50,21 +50,17 @@ def _coalesce(df, *candidates):
     return out
 
 
-# nflverse depth charts carry each franchise's HISTORICAL club code, while
-# play-by-play and schedules use its current one. Left unmapped, every join on
-# team silently misses for the three relocated franchises -- 374 team-games
-# (Raiders 2010-2019, Chargers 2010-2016, Rams 2010-2015), which then fell back
-# to the deep-backup depth sentinel, to starters_out=0 and to zero Pro Bowl
-# churn. Normalising here fixes every consumer of the depth charts at once.
-TEAM_CODE_ALIASES = {"OAK": "LV", "SD": "LAC", "STL": "LA"}
-
-
 def _normalize_depth(depth_charts):
     """Flatten the multi-schema depth charts into stable, typed columns."""
     out = pd.DataFrame(index=depth_charts.index)
     out["season"] = pd.to_numeric(_coalesce(depth_charts, "season"), errors="coerce")
     out["week"] = pd.to_numeric(_coalesce(depth_charts, "week"), errors="coerce")
-    out["team"] = _coalesce(depth_charts, "club_code", "team").replace(TEAM_CODE_ALIASES)
+    # Historical club codes (OAK/SD/STL) must be mapped to the franchise's current
+    # code before ANY join on team; see data.team_code_map for why and how. This
+    # single point fixes qb.py, schedule.py and projection.py together.
+    out["team"] = _coalesce(depth_charts, "club_code", "team").replace(
+        data.team_code_map()
+    )
     out["player_id"] = _coalesce(depth_charts, "gsis_id")
     out["position"] = _coalesce(depth_charts, "position", "pos_abb")
     out["formation"] = _coalesce(depth_charts, "formation")
@@ -254,6 +250,19 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
         g["qb_season_start_idx"] = g.groupby("season").cumcount()
         # Longer-memory rolling form (option 3), leakage-safe.
         g["qb_roll_epa_long"] = prior.rolling(config.QB_LONG_WINDOW, min_periods=1).mean().to_numpy()
+        # State AFTER this start, i.e. including it. The representative QB for a
+        # game is the one the depth chart named, who may not have played -- his
+        # form entering that game is the state left by his own most recent start,
+        # which is what these columns carry into the as-of join below.
+        inc = g["qb_game_epa"]
+        for w in windows:
+            g[f"_post_roll_{w}"] = inc.rolling(w, min_periods=1).mean().to_numpy()
+        g["_post_starts"] = np.arange(len(g)) + 1
+        g["_post_career"] = inc.expanding(min_periods=1).mean().to_numpy()
+        g["_post_roll_long"] = inc.rolling(
+            config.QB_LONG_WINDOW, min_periods=1).mean().to_numpy()
+        g["_post_season"] = g["season"].to_numpy()
+        g["_post_season_idx"] = g.groupby("season").cumcount().to_numpy() + 1
         return g
 
     starters = pd.concat(
@@ -267,6 +276,50 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
         starters.loc[starters["season"] <= config.TRAIN_MAX_SEASON, "qb_game_epa"]
         .quantile(config.REPLACEMENT_QUANTILE)
     )
+
+    # 5b) THE REPRESENTATIVE QB IS THE ONE THE DEPTH CHART NAMED, NOT THE ONE WHO
+    #     TURNED OUT TO PLAY MOST. Which QB ends up taking the most dropbacks is
+    #     only knowable after kickoff, so using it to choose whose form describes
+    #     the team leaks the game into its own feature. The published depth chart
+    #     is a pre-game feed and answers the same question honestly. (Building the
+    #     HISTORY from whoever actually threw is not leakage -- those box scores
+    #     already exist when the current game kicks off -- so `starters` above,
+    #     and the rolling series built from it, stay as they are.)
+    #
+    #     The named QB1 may not appear in this game at all, so his form is fetched
+    #     as-of: the state left by his own most recent start before this kickoff.
+    #     Where no QB1 is published, fall back to the QB who actually started.
+    post_cols = ([f"_post_roll_{w}" for w in windows]
+                 + ["_post_starts", "_post_career", "_post_roll_long",
+                    "_post_season", "_post_season_idx"])
+    state = (starters[["passer_player_id", "game_date"] + post_cols]
+             .dropna(subset=["game_date"])
+             .sort_values(["game_date", "passer_player_id"], kind="mergesort"))
+
+    rep = starters[["game_id", "season", "week", "posteam", "game_date",
+                    "passer_player_id", "passer_player_name", "qb_dropbacks"]].copy()
+    rep = rep.merge(qb1.rename(columns={"team": "posteam"}),
+                    on=["season", "week", "posteam"], how="left")
+    rep["rep_qb_id"] = rep["qb1_id"].fillna(rep["passer_player_id"])
+    rep["qb1_published"] = rep["qb1_id"].notna().astype(int)
+
+    rep = pd.merge_asof(
+        rep.sort_values(["game_date", "rep_qb_id"], kind="mergesort"),
+        state, on="game_date", left_by="rep_qb_id", right_by="passer_player_id",
+        direction="backward", allow_exact_matches=False, suffixes=("", "_state"),
+    )
+    for w in windows:
+        rep[f"qb_roll_epa_{w}"] = rep[f"_post_roll_{w}"]
+    rep["qb_prior_starts"] = rep["_post_starts"].fillna(0)
+    rep["qb_career_epa"] = rep["_post_career"]
+    rep["qb_roll_epa_long"] = rep["_post_roll_long"]
+    # Starts already made THIS season; a QB whose last start was a prior season
+    # is at 0, which is what triggers the season-opener regression toward career.
+    rep["qb_season_start_idx"] = np.where(
+        rep["_post_season"].to_numpy() == rep["season"].to_numpy(),
+        rep["_post_season_idx"].fillna(0).to_numpy(), 0.0,
+    )
+    starters = rep
 
     # 6) shrinkage quality: blend a QB's own rolling form toward replacement by
     #    how many prior starts back the rolling window. A debut (n_eff = 0) maps
@@ -319,13 +372,16 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
          "qb_career_epa"]
         + qb_roll_cols + qb_quality_cols + qb_base_cols
     )
-    starters_merge = starters.rename(
-        columns={
-            "posteam": "team",
-            "passer_player_id": "qb_player_id",
-            "passer_player_name": "qb_player_name",
-        }
-    )[["game_id", "team"] + qb_merge_cols]
+    # qb_player_id is the QB the model is describing -- the representative
+    # (depth-chart) one, not whoever turned out to throw most. projection.py
+    # reads this to seed the upcoming season, so the two now agree on what a
+    # team's starter means.
+    starters = starters.rename(columns={"rep_qb_id": "qb_player_id"})
+    name_map = dict(zip(qb_game["passer_player_id"], qb_game["passer_player_name"]))
+    starters["qb_player_name"] = starters["qb_player_id"].map(name_map)
+    starters_merge = starters.rename(columns={"posteam": "team"})[
+        ["game_id", "team"] + qb_merge_cols
+    ]
 
     starters_merge = starters_merge.merge(role, on=["game_id", "team"], how="left")
 

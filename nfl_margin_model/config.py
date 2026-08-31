@@ -181,12 +181,18 @@ DROP_BEFORE_MODEL = [
     # qb_depth_order, is_designated_starter, starter_inactive, qb_prior_starts.
     "qb_player_id", "qb_player_name", "qb_dropbacks",
     "qb_roll_epa_5", "qb_roll_epa_10", "qb_career_epa",
+    # Both of these are computed from the QB who ACTUALLY took the most
+    # dropbacks, which is only knowable after kickoff, so neither can be a
+    # model input. They are kept on the frame as diagnostics (they drive the
+    # "designated QB1 started X%" line). The pre-game half of the same signal --
+    # starter_inactive, from the injury report on the named QB1 -- is a feature.
+    "qb_depth_order", "is_designated_starter",
     # Pre-offseason-pull QB quality: projection-path scaffolding, not a feature
     # (it is a near-duplicate of qb_quality_* and would just add noise).
     "qb_quality_base_5", "qb_quality_base_10",
     # Pro Bowl pedigree columns. As *tree* inputs these are null-to-harmful
     # (walk-forward: +0.003 mean RMSE) -- the situations are far too rare for a
-    # depth-2 ensemble to carve out among 169 other features. They are kept on
+    # depth-2 ensemble to carve out among 167 other features. They are kept on
     # the frame (not fed to the model) because the effect is real and is
     # exploited instead by a pooled linear correction on edge_pb_out_ever.
     "pb_out_ever", "pb_out_recent", "pb_out_elite",
@@ -204,7 +210,7 @@ DROP_BEFORE_MODEL = [
 # --- Pro Bowl absence correction ----------------------------------------
 # A team missing Pro Bowl-pedigree players underperforms the tree model by a
 # real margin (~2.4 pts when 2+ are out), but the situation is far too rare
-# (~6% of team-games) for a depth-2 ensemble to isolate among 169 features --
+# (~6% of team-games) for a depth-2 ensemble to isolate among 167 features --
 # fed in as tree inputs the columns are null-to-harmful. Instead the residual
 # is removed with an explicit linear term whose slope is pooled across many
 # out-of-fold seasons. Walk-forward: helps 5/5 test seasons, and scales with
