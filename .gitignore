@@ -1,0 +1,28 @@
+# --- Scraped Pro-Football-Reference data (not redistributed) ---------------
+# See nfl_margin_model/pro-bowl/README.md for how to rebuild this locally.
+nfl_margin_model/pro-bowl/*.csv
+nfl_margin_model/pro-bowl/*.json
+
+# --- Cached nflverse pulls -------------------------------------------------
+*.parquet
+cache/
+.cache/
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# --- Scratch / editor / OS -------------------------------------------------
+scratchpad/
+.DS_Store
+.idea/
+.vscode/

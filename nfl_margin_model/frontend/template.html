@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NFL Prediction Model</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>/*__FONTS__*/</style>
+<style>
+  html, body { margin: 0; padding: 0; background: #070f1c; }
+  * { box-sizing: border-box; }
+  a { color: #f0b429; text-decoration: none; }
+  a:hover { color: #ffd166; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #070f1c; }
+  ::-webkit-scrollbar-thumb { background: #1c2c47; border-radius: 6px; border: 3px solid #070f1c; }
+  ::-webkit-scrollbar-thumb:hover { background: #2b4067; }
+  @keyframes dcFade { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .wkbtn:not([data-locked="1"]):hover { background: #142440 !important; color: #dfe8f6 !important; }
+  .card:hover { border-color: #2b4067 !important; }
+  button:focus-visible, input:focus-visible { outline: 2px solid #f7c948; outline-offset: 2px; }
+
+  /* The design is a fixed 268px rail + a three-column fixture grid, which needs
+     roughly 900px. Below that the shell unstacks so the page stays usable on a
+     laptop in a narrow window, a tablet or a phone. Inline styles carry the
+     design, so these overrides need !important to win. */
+  @media (max-width: 900px) {
+    html, body { height: auto !important; }
+    .shell { display: block !important; height: auto !important; overflow: visible !important; }
+    .rail { width: 100% !important; flex: none !important; height: auto !important;
+            overflow: visible !important; border-right: 0 !important;
+            border-bottom: 1px solid #16233a !important; }
+    .mainpane { overflow: visible !important; }
+    #weeks { flex-direction: row !important; flex-wrap: wrap !important; flex: none !important; }
+    #weeks button { width: auto !important; }
+    .hdr { grid-template-columns: 1fr !important; gap: 14px !important; }
+    .hdr .home { flex-direction: row !important; justify-content: flex-start !important; }
+    .hdr .home .side { align-items: flex-start !important; }
+    .expand { grid-template-columns: 1fr !important; }
+    .subrow { flex-wrap: wrap !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell" style="display: flex; height: 100vh; overflow: hidden; background: #070f1c; font-family: Archivo, system-ui, sans-serif; color: #e8eef8;">
+
+  <aside class="rail" style="width: 268px; flex: 0 0 268px; border-right: 1px solid #16233a; background: linear-gradient(180deg, #0a1425 0%, #08111f 100%); display: flex; flex-direction: column; overflow: hidden;">
+    <div style="padding: 22px 20px 18px; display: flex; gap: 12px; align-items: flex-start;">
+      <div style="width: 42px; height: 42px; flex: 0 0 42px; border-radius: 10px; background: linear-gradient(145deg, #f7c948, #e0a318); display: grid; place-items: center; font-weight: 800; font-size: 13px; letter-spacing: 0.02em; color: #10192b; box-shadow: 0 6px 18px rgba(224, 163, 24, 0.28);">NFL</div>
+      <div style="display: flex; flex-direction: column; gap: 5px; padding-top: 2px;">
+        <div style="font-size: 16px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15;">Prediction Model</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; color: #6d84a8; text-transform: uppercase;">Point-margin engine</div>
+      </div>
+    </div>
+
+    <div style="margin: 0 20px 18px; padding: 12px 14px; border-radius: 10px; background: #0d1a2e; border: 1px solid #182842; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 8.5px; letter-spacing: 0.13em; color: #62789a;">SEASON</div>
+      <div id="season" style="font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">—</div>
+    </div>
+
+    <div style="padding: 0 20px 8px; display: flex; align-items: center; justify-content: space-between;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.16em; color: #62789a;">SCHEDULE</div>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#445a7e" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line><line x1="8" y1="3" x2="8" y2="7"></line><line x1="16" y1="3" x2="16" y2="7"></line></svg>
+    </div>
+
+    <div id="weeks" style="flex: 1; overflow-y: auto; padding: 4px 14px 18px; display: flex; flex-direction: column; gap: 2px;"></div>
+
+    <div style="padding: 14px 20px 18px; border-top: 1px solid #16233a; display: flex; flex-direction: column; gap: 9px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 8.5px; letter-spacing: 0.14em; color: #62789a;">EDGE KEY</div>
+      <div style="display: flex; flex-direction: column; gap: 7px;">
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #93a7c4;">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: #4fd1a5;"></span> Strong · 3.0+ pts
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #93a7c4;">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: #f0b429;"></span> Lean · 1.5–3.0
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #93a7c4;">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: #445a7e;"></span> Aligned · under 1.5
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="mainpane" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-width: 0;">
+
+    <header style="position: sticky; top: 0; z-index: 20; background: rgba(8, 17, 31, 0.94); backdrop-filter: blur(12px); border-bottom: 1px solid #16233a; padding: 20px 30px 0;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div id="eyebrow" style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.16em; color: #62789a;">SEASON</div>
+          <div id="weekTitle" style="font-size: 27px; font-weight: 800; letter-spacing: -0.025em;">Week —</div>
+        </div>
+        <div style="display: flex; gap: 10px; padding-bottom: 4px;">
+          <div style="padding: 9px 15px; border-radius: 9px; background: #0d1a2e; border: 1px solid #1a2b46; display: flex; flex-direction: column; gap: 3px; min-width: 92px;">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 8.5px; letter-spacing: 0.12em; color: #62789a;">GAMES</div>
+            <div id="gameCount" style="font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700;">0</div>
+          </div>
+          <div style="padding: 9px 15px; border-radius: 9px; background: #0d1a2e; border: 1px solid #1a2b46; display: flex; flex-direction: column; gap: 3px; min-width: 118px;">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 8.5px; letter-spacing: 0.12em; color: #62789a;">BIGGEST EDGE</div>
+            <div id="topEdge" style="font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700; color: #4fd1a5;">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; padding: 16px 0 14px; flex-wrap: wrap;">
+        <div id="filters" style="display: flex; gap: 4px; padding: 3px; border-radius: 9px; background: #0c1728; border: 1px solid #1a2b46;"></div>
+
+        <div style="width: 1px; height: 22px; background: #1a2b46; margin: 0 4px;"></div>
+
+        <div style="display: flex; align-items: center; gap: 8px; padding: 0 4px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b7298" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"></line><line x1="4" y1="12" x2="15" y2="12"></line><line x1="4" y1="17" x2="10" y2="17"></line></svg>
+          <div id="sorts" style="display: flex; gap: 4px;"></div>
+        </div>
+
+        <div style="flex: 1;"></div>
+
+        <label style="display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 9px; background: #0c1728; border: 1px solid #1a2b46;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5b7298" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="16" y1="16" x2="21" y2="21"></line></svg>
+          <input id="q" placeholder="Find a team" style="border: 0; outline: 0; background: transparent; color: #dfe8f6; font-family: Archivo, sans-serif; font-size: 12px; width: 122px;">
+        </label>
+      </div>
+    </header>
+
+    <div id="games" style="padding: 8px 30px 60px; display: flex; flex-direction: column; gap: 10px;" aria-live="polite"></div>
+    <footer id="foot" style="padding: 0 30px 40px; color: #445a7e; font-size: 11.5px; line-height: 1.7; font-family: 'JetBrains Mono', monospace;"></footer>
+  </main>
+</div>
+
+<script id="payload" type="application/json">/*__DATA__*/</script>
+<script>
+(async function () {
+  let DATA;
+  try { DATA = JSON.parse(document.getElementById('payload').textContent); } catch (e) { DATA = null; }
+  try { const r = await fetch('preds.json', { cache: 'no-store' }); if (r.ok) DATA = await r.json(); } catch (e) {}
+  const host = document.getElementById('games');
+  if (!DATA) { host.innerHTML = '<div style="padding:60px;text-align:center;color:#5b7298;font-size:13px;border:1px dashed #1a2b46;border-radius:12px;">No prediction data found.</div>'; return; }
+
+  const ACCENT = '#f7c948';
+  const TEAMS = DATA.teams || {}, GAMES = DATA.games || [], META = DATA.meta || {};
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const name = a => (TEAMS[a] && TEAMS[a].name) || a;
+  const color = a => (TEAMS[a] && TEAMS[a].color) || '#445a7e';
+  const logo = a => (TEAMS[a] && TEAMS[a].logo) || null;
+
+  const seasons = [...new Set(GAMES.map(g => g.season))].sort();
+  const season = META.display_seasons && META.display_seasons.length ? META.display_seasons[0] : seasons[seasons.length - 1];
+  const inSeason = GAMES.filter(g => g.season === season);
+  const weekCounts = {};
+  inSeason.forEach(g => { weekCounts[g.week] = (weekCounts[g.week] || 0) + 1; });
+  const liveWeeks = Object.keys(weekCounts).map(Number).sort((a, b) => a - b);
+
+  const S = { week: META.projected_week || liveWeeks[0] || 1, open: null, filter: 'All', sort: 'Kickoff', query: '' };
+
+  const tone = e => Math.abs(e) >= 3 ? { c: '#4fd1a5', t: 'STRONG' }
+    : Math.abs(e) >= 1.5 ? { c: '#f0b429', t: 'LEAN' } : { c: '#445a7e', t: 'ALIGNED' };
+  const spread = hm => ({ fav: hm >= 0 ? 'home' : 'away', txt: Math.abs(hm).toFixed(1) });
+  const moneyline = p => {
+    if (!(p > 0 && p < 1)) return '—';
+    const v = p >= 0.5 ? -Math.round(100 * p / (1 - p)) : Math.round(100 * (1 - p) / p);
+    return (v > 0 ? '+' : '') + v;
+  };
+  const DRIVER_LABELS = {
+    'Net EPA edge (5g)': 'Net EPA edge (last 5 games)',
+    'Net EPA edge (last 5 games)': 'Net EPA edge (last 5 games)',
+    'Passing matchup edge (5g)': 'Passing matchup edge (last 5 games)',
+    'Rest advantage (days)': 'Rest advantage (days)'
+  };
+  const driverLabel = k => DRIVER_LABELS[k] || String(k).replace(/\((\d+)g\)/, '(last $1 games)');
+
+  const chip = on => 'padding: 6px 13px; border: 0; border-radius: 7px; cursor: pointer; font-family: Archivo, sans-serif; font-size: 11.5px; font-weight: 600; background: ' + (on ? '#1b3557' : 'transparent') + '; color: ' + (on ? '#ffffff' : '#7089ac') + ';';
+  const favPill = on => on
+    ? 'padding: 2px 7px; border-radius: 4px; font-family: \'JetBrains Mono\', monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; background: ' + ACCENT + '22; color: ' + ACCENT + '; border: 1px solid ' + ACCENT + '55;'
+    : 'display: none;';
+  const pos = v => Math.max(3, Math.min(97, ((v + 14) / 28) * 100));
+
+  function prep(g) {
+    const hm = g.pred_margin, mkt = g.market_spread;
+    const hasMkt = mkt !== null && mkt !== undefined;
+    const edge = hasMkt ? hm - mkt : 0;
+    const mSp = spread(hm), kSp = hasMkt ? spread(mkt) : null;
+    const edgeTeam = edge > 0 ? g.home : g.away;
+    const hp = g.win_prob_home, ap = 1 - hp;
+    const mwp = g.market_win_prob_home;
+    const final = g.home_score !== null && g.home_score !== undefined;
+    const homePct = Math.round(hp * 100);
+    const mwpPct = (mwp === null || mwp === undefined) ? null : Math.round(mwp * 100);
+    // Gap is the difference of the two DISPLAYED integers, so the panel can
+    // never contradict the two percentages sitting directly above it.
+    const gap = mwpPct === null ? null : homePct - mwpPct;
+    return {
+      g, hm, mkt, hasMkt, edge, mSp, kSp, edgeTeam, hp, ap, mwp, mwpPct, gap, final,
+      tone: tone(edge),
+      awayPct: 100 - homePct, homePct: homePct,
+      modelLabel: (mSp.fav === 'home' ? g.home : g.away) + ' −' + mSp.txt,
+      marketLabel: hasMkt ? (kSp.fav === 'home' ? g.home : g.away) + ' −' + kSp.txt : '—',
+      status: final ? 'FINAL' : 'PREDICTION ONLY'
+    };
+  }
+
+  function teamTile(abbr, side) {
+    const c = color(abbr), l = logo(abbr);
+    return '<div style="width: 44px; height: 44px; flex: 0 0 44px; border-radius: 10px; display: grid; place-items: center; background: ' + c + '1f; border: 1px solid ' + c + '66; position: relative; overflow: hidden;">'
+      + '<span style="font-family: \'JetBrains Mono\', monospace; font-size: 12px; font-weight: 700; color: #93a7c4;">' + esc(abbr) + '</span>'
+      + (l ? '<img src="' + l + '" alt="" style="position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px); object-fit: contain;">' : '')
+      + '</div>';
+  }
+
+  function rowsFor() {
+    let rows = inSeason.filter(g => g.week === S.week).map(prep);
+    const q = S.query.trim().toLowerCase();
+    if (q) rows = rows.filter(r => (r.g.away + r.g.home + name(r.g.away) + name(r.g.home)).toLowerCase().includes(q));
+    if (S.filter === 'Strong edge') rows = rows.filter(r => Math.abs(r.edge) >= 3);
+    if (S.filter === 'Disagrees on winner') rows = rows.filter(r => r.hasMkt && r.mSp.fav !== r.kSp.fav);
+    if (S.sort === 'Edge') rows = rows.slice().sort((x, y) => Math.abs(y.edge) - Math.abs(x.edge));
+    if (S.sort === 'Margin') rows = rows.slice().sort((x, y) => Math.abs(y.hm) - Math.abs(x.hm));
+    return rows;
+  }
+
+  function render() {
+    document.getElementById('season').textContent = season;
+    document.getElementById('eyebrow').textContent = season + ' REGULAR SEASON';
+    document.getElementById('weekTitle').textContent = 'Week ' + S.week;
+
+    // week rail
+    const maxWeek = Math.max(18, ...liveWeeks);
+    let wk = '';
+    for (let i = 1; i <= maxWeek; i++) {
+      const active = S.week === i, locked = !weekCounts[i];
+      wk += '<button class="wkbtn" data-week="' + i + '" data-locked="' + (locked ? 1 : 0) + '" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; font-family: Archivo, sans-serif; cursor: ' + (locked ? 'default' : 'pointer') + '; opacity: ' + (locked ? 0.4 : 1) + '; background: ' + (active ? '#132540' : 'transparent') + '; color: ' + (active ? '#ffffff' : '#8fa3c1') + ';">'
+        + '<span style="width: 3px; height: 16px; border-radius: 2px; background: ' + (active ? ACCENT : 'transparent') + ';"></span>'
+        + '<span style="flex: 1; text-align: left; font-size: 13px; font-weight: 600;">Week ' + i + '</span>'
+        + '<span style="font-family: \'JetBrains Mono\', monospace; font-size: 10.5px; color: ' + (active ? '#93a7c4' : '#3b4f70') + ';">' + (locked ? '—' : weekCounts[i]) + '</span>'
+        + '</button>';
+    }
+    document.getElementById('weeks').innerHTML = wk;
+
+    document.getElementById('filters').innerHTML = ['All', 'Strong edge', 'Disagrees on winner']
+      .map(f => '<button data-filter="' + esc(f) + '" style="' + chip(S.filter === f) + '">' + esc(f) + '</button>').join('');
+    document.getElementById('sorts').innerHTML = ['Kickoff', 'Edge', 'Margin']
+      .map(f => '<button data-sort="' + esc(f) + '" style="' + chip(S.sort === f) + '">' + esc(f) + '</button>').join('');
+
+    const rows = rowsFor();
+    const weekAll = inSeason.filter(g => g.week === S.week).map(prep).filter(r => r.hasMkt);
+    document.getElementById('gameCount').textContent = inSeason.filter(g => g.week === S.week).length;
+    if (weekAll.length) {
+      const best = weekAll.slice().sort((x, y) => Math.abs(y.edge) - Math.abs(x.edge))[0];
+      document.getElementById('topEdge').textContent = Math.abs(best.edge).toFixed(1) + ' ' + best.edgeTeam;
+    } else {
+      document.getElementById('topEdge').textContent = '—';
+    }
+
+    host.innerHTML = rows.length ? rows.map(r => {
+      const g = r.g, open = S.open === g.game_id, tn = r.tone;
+      const aC = color(g.away), hC = color(g.home);
+      const cmp = [
+        ['Model spread', r.modelLabel, ACCENT],
+        ['Market spread', r.marketLabel, '#dfe8f6'],
+        ['Difference', r.hasMkt ? Math.abs(r.edge).toFixed(1) + ' pts → ' + r.edgeTeam : '—', tn.c],
+        ['Model win prob · ' + g.home, r.homePct + '%', '#dfe8f6'],
+        ['Market implied · ' + g.home, r.mwpPct == null ? '—' : r.mwpPct + '%', '#93a7c4'],
+        ['Probability gap', r.gap == null ? '—' : (r.gap === 0 ? '0 pts' : (r.gap > 0 ? '+' : '−') + Math.abs(r.gap) + ' pts'),
+          r.gap != null && Math.abs(r.gap) >= 5 ? tn.c : '#93a7c4']
+      ];
+      const meta = [
+        ['Kickoff', g.kickoff || '—'],
+        ['Venue', g.venue || '—'],
+        ['Site', g.neutral_site ? 'Neutral' : g.home + ' home'],
+        ['Status', r.final ? 'Final · ' + g.away + ' ' + g.away_score + ' – ' + g.home + ' ' + g.home_score : 'Upcoming'],
+        ['Moneyline', g.away + ' ' + moneyline(r.ap) + ' / ' + g.home + ' ' + moneyline(r.hp)]
+      ];
+      const dKeys = Object.keys(g.drivers || {});
+      const dScale = Math.max.apply(null, [0.01].concat(
+        dKeys.map(k => (g.drivers[k] == null ? 0 : Math.abs(g.drivers[k])))));
+      const driverRow = k => {
+        const v = g.drivers[k];
+        const zero = v != null && Math.abs(v) < 0.005;
+        const dead = v == null || zero;
+        const col = dead ? '#5b7298' : (v > 0 ? '#4fd1a5' : '#e8734a');
+        const mag = dead ? 0 : Math.min(1, Math.abs(v) / dScale) * 50;
+        return '<div style="display: flex; align-items: center; gap: 10px; padding: 9px 13px; background: #0c1728;">'
+          + '<span style="font-size: 11.5px; color: #93a7c4; flex: 1; min-width: 0;">' + esc(driverLabel(k)) + '</span>'
+          + '<div style="position: relative; width: 62px; height: 5px; border-radius: 3px; background: #14243d; flex: 0 0 62px;">'
+          + '<div style="position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #2b4067;"></div>'
+          + (dead ? '' : '<div style="position: absolute; top: 0; bottom: 0; border-radius: 3px; background: ' + col + '; ' + (v > 0 ? 'left: 50%;' : 'right: 50%;') + ' width: ' + mag.toFixed(1) + '%;"></div>')
+          + '</div>'
+          + '<span style="font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; font-weight: 700; color: ' + col + '; width: 54px; text-align: right;">'
+          + esc(v == null ? '—' : zero ? '0.00' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(2)) + '</span></div>';
+      };
+      const cell = (l, v, c, mono) => '<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; background: #0c1728;">'
+        + '<span style="font-size: 11.5px; color: #93a7c4;">' + esc(l) + '</span>'
+        + '<span style="font-family: \'JetBrains Mono\', monospace; font-size: ' + (mono ? '11.5' : '12.5') + 'px; ' + (mono ? '' : 'font-weight: 700; ') + 'color: ' + c + ';">' + esc(v) + '</span></div>';
+
+      return '<div class="card" style="border-radius: 14px; border: 1px solid ' + (open ? '#2b4067' : '#16233a') + '; background: linear-gradient(180deg, #0c1728 0%, #0a1425 100%); overflow: hidden; transition: border-color 160ms ease; box-shadow: ' + (open ? '0 12px 34px rgba(0,0,0,0.4)' : 'none') + ';">'
+
+        + '<div class="hdr" data-toggle="' + esc(g.game_id) + '" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 1.45fr) minmax(0, 1fr); align-items: center; gap: 20px; padding: 18px 20px; cursor: pointer;">'
+
+        + '<div style="display: flex; align-items: center; gap: 13px; min-width: 0;">' + teamTile(g.away)
+        + '<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1;">'
+        + '<div style="display: flex; align-items: center; gap: 7px;"><span style="font-family: \'JetBrains Mono\', monospace; font-size: 14.5px; font-weight: 700; letter-spacing: 0.02em;">' + esc(g.away) + '</span>'
+        + '<span style="' + favPill(r.mSp.fav === 'away') + '">FAV</span></div>'
+        + '<div style="font-size: 12px; color: #8fa3c1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + esc(name(g.away)) + '</div>'
+        + '<div style="font-family: \'JetBrains Mono\', monospace; font-size: 10.5px; color: #5b7298;">ML ' + esc(moneyline(r.ap)) + '</div>'
+        + '</div></div>'
+
+        + '<div style="display: flex; flex-direction: column; gap: 8px;">'
+        + '<div style="display: flex; align-items: baseline; justify-content: center; gap: 9px;"><span style="font-family: \'JetBrains Mono\', monospace; font-size: 9px; letter-spacing: 0.14em; color: #62789a;">MODEL</span>'
+        + '<span style="font-family: \'JetBrains Mono\', monospace; font-size: 21px; font-weight: 700; color: #f7c948; letter-spacing: -0.01em;">' + esc(r.modelLabel) + '</span></div>'
+        + '<div style="position: relative; height: 12px; border-radius: 6px; overflow: hidden; background: #0a1526; display: flex; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);">'
+        + '<div style="width: ' + r.awayPct + '%; background: ' + aC + ';"></div><div style="flex: 1; background: ' + hC + ';"></div>'
+        + '<div style="position: absolute; top: -2px; bottom: -2px; left: ' + r.awayPct + '%; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #f7f3e8; box-shadow: 0 0 8px rgba(247, 243, 232, 0.55);"></div>'
+        + '<div style="position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(255, 255, 255, 0.28);"></div></div>'
+        + '<div style="display: flex; justify-content: space-between; font-family: \'JetBrains Mono\', monospace; font-size: 11px; color: #8fa3c1;">'
+        + '<span><b style="color: #dfe8f6;">' + r.awayPct + '%</b> ' + esc(g.away) + '</span>'
+        + '<span style="color: #62789a; letter-spacing: 0.1em; font-size: 9px; align-self: center;">WIN PROBABILITY</span>'
+        + '<span>' + esc(g.home) + ' <b style="color: #dfe8f6;">' + r.homePct + '%</b></span></div></div>'
+
+        + '<div class="home" style="display: flex; align-items: center; gap: 13px; justify-content: flex-end; min-width: 0;">'
+        + '<div class="side" style="display: flex; flex-direction: column; gap: 3px; align-items: flex-end; min-width: 0; flex: 1;">'
+        + '<div style="display: flex; align-items: center; gap: 7px;"><span style="' + favPill(r.mSp.fav === 'home') + '">FAV</span>'
+        + '<span style="font-family: \'JetBrains Mono\', monospace; font-size: 14.5px; font-weight: 700; letter-spacing: 0.02em;">' + esc(g.home) + '</span></div>'
+        + '<div style="font-size: 12px; color: #8fa3c1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + esc(name(g.home)) + '</div>'
+        + '<div style="font-family: \'JetBrains Mono\', monospace; font-size: 10.5px; color: #5b7298;">ML ' + esc(moneyline(r.hp)) + '</div>'
+        + '</div>' + teamTile(g.home) + '</div></div>'
+
+        + '<div class="subrow" data-toggle="' + esc(g.game_id) + '" style="display: flex; align-items: center; gap: 10px; padding: 0 20px 15px; cursor: pointer;">'
+        + '<div style="display: flex; align-items: center; gap: 8px; padding: 5px 11px; border-radius: 20px; font-family: \'JetBrains Mono\', monospace; color: ' + tn.c + '; background: ' + tn.c + '14; border: 1px solid ' + tn.c + '40;">'
+        + '<span style="width: 6px; height: 6px; border-radius: 50%; background: ' + tn.c + ';"></span>'
+        + '<span style="letter-spacing: 0.1em; font-size: 9px;">' + tn.t + '</span>'
+        + '<span style="font-weight: 700; font-size: 11.5px;">' + (r.hasMkt ? esc(Math.abs(r.edge).toFixed(1) + ' pts ' + r.edgeTeam) : '—') + '</span></div>'
+        + '<div style="font-family: \'JetBrains Mono\', monospace; color: #7089ac; display: flex; align-items: baseline; gap: 8px;">'
+        + '<span style="color: #62789a; letter-spacing: 0.1em; font-size: 9.5px;">MARKET</span>'
+        + '<span style="color: #d6e2f2; font-weight: 700; font-size: 15px; letter-spacing: -0.01em;">' + esc(r.marketLabel) + '</span></div>'
+        + (g.neutral_site ? '<div style="display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 20px; border: 1px solid #2b4067; font-family: \'JetBrains Mono\', monospace; font-size: 9px; letter-spacing: 0.1em; color: #8fa3c1;"><span style="width: 5px; height: 5px; background: #f0b429; transform: rotate(45deg);"></span> NEUTRAL SITE</div>' : '')
+        + '<div style="flex: 1;"></div>'
+        + '<div style="font-family: \'JetBrains Mono\', monospace; font-size: 10.5px; color: #62789a;">' + esc(g.kickoff || '') + '</div>'
+        + '<div style="font-family: \'JetBrains Mono\', monospace; font-size: 9px; letter-spacing: 0.1em; color: #5b7298; padding: 4px 9px; border-radius: 5px; background: #0d1a2e;">' + esc(r.status) + '</div>'
+        + '<div style="width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: ' + (open ? '#1b3557' : '#0d1a2e') + '; color: ' + (open ? ACCENT : '#5b7298') + '; transition: transform 180ms ease; transform: rotate(' + (open ? 180 : 0) + 'deg);">'
+        + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></div></div>'
+
+        + (open ? '<div class="expand" style="border-top: 1px solid #17263e; background: #0a1425; padding: 20px; display: grid; grid-template-columns: 1.1fr 1fr 0.9fr; gap: 18px; animation: dcFade 180ms ease-out;">'
+          + '<div style="display: flex; flex-direction: column; gap: 12px;"><div style="font-family: \'JetBrains Mono\', monospace; font-size: 9px; letter-spacing: 0.14em; color: #62789a;">MODEL VS MARKET</div>'
+          + '<div style="display: flex; flex-direction: column; gap: 1px; border-radius: 9px; overflow: hidden; border: 1px solid #17263e;">'
+          + cmp.map(c => cell(c[0], c[1], c[2], false)).join('') + '</div></div>'
+
+          + '<div style="display: flex; flex-direction: column; gap: 12px;"><div style="font-family: \'JetBrains Mono\', monospace; font-size: 9px; letter-spacing: 0.14em; color: #62789a;">PROJECTED MARGIN</div>'
+          + '<div style="padding: 18px 14px 12px; border-radius: 9px; background: #0c1728; border: 1px solid #17263e; display: flex; flex-direction: column; gap: 10px;">'
+          + '<div style="position: relative; height: 8px; border-radius: 4px; background: linear-gradient(90deg, ' + aC + ' 0%, #14243d 46%, #14243d 54%, ' + hC + ' 100%);">'
+          + '<div style="position: absolute; top: 50%; left: 50%; width: 1px; height: 16px; margin-top: -8px; background: #2b4067;"></div>'
+          + (r.hasMkt ? '<div style="position: absolute; top: -8px; left: ' + pos(r.mkt) + '%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;"><div style="width: 2px; height: 24px; background: #7089ac;"></div><div style="font-family: \'JetBrains Mono\', monospace; font-size: 8.5px; color: #7089ac; letter-spacing: 0.1em; margin-top: 3px;">MKT</div></div>' : '')
+          + '<div style="position: absolute; top: -14px; left: ' + pos(r.hm) + '%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;"><div style="width: 3px; height: 36px; border-radius: 2px; background: #f7c948; box-shadow: 0 0 10px rgba(247, 201, 72, 0.5);"></div><div style="font-family: \'JetBrains Mono\', monospace; font-size: 8.5px; color: #f7c948; letter-spacing: 0.1em; margin-top: 3px; font-weight: 700;">MODEL</div></div></div>'
+          + '<div style="display: flex; justify-content: space-between; font-family: \'JetBrains Mono\', monospace; font-size: 9.5px; margin-top: 26px;">'
+          + '<span style="color: #5b7298;">' + esc(g.away) + ' +14</span><span style="color: #445a7e;">PICK</span><span style="color: #5b7298;">' + esc(g.home) + ' +14</span></div></div>'
+          + (dKeys.length ? '<div style="font-family: \'JetBrains Mono\', monospace; font-size: 9px; letter-spacing: 0.14em; color: #62789a; margin-top: 2px;">MODEL DRIVERS</div>'
+            + '<div style="display: flex; flex-direction: column; gap: 1px; border-radius: 9px; overflow: hidden; border: 1px solid #17263e;">'
+            + dKeys.map(driverRow).join('') + '</div>' : '')
+          + '</div>'
+
+          + '<div style="display: flex; flex-direction: column; gap: 12px;"><div style="font-family: \'JetBrains Mono\', monospace; font-size: 9px; letter-spacing: 0.14em; color: #62789a;">GAME INFO</div>'
+          + '<div style="display: flex; flex-direction: column; gap: 1px; border-radius: 9px; overflow: hidden; border: 1px solid #17263e;">'
+          + meta.map(m => cell(m[0], m[1], '#dfe8f6', true)).join('') + '</div></div></div>' : '')
+        + '</div>';
+    }).join('') : '<div style="padding: 60px; text-align: center; color: #5b7298; font-size: 13px; border: 1px dashed #1a2b46; border-radius: 12px;">No games match this filter.</div>';
+
+    document.getElementById('foot').innerHTML =
+      'Model: ' + esc(META.model || '') + '<br>Trained through ' + esc(META.train_through) + ' · generated ' + esc(META.generated)
+      + ' · market line: ' + esc(META.spread_source || 'consensus')
+      + '<br>Out-of-sample point-margin predictions, graded against actual results — not against the spread. For analysis, not wagering advice.';
+  }
+
+  host.addEventListener('click', e => {
+    const t = e.target.closest('[data-toggle]');
+    if (!t) return;
+    const id = t.getAttribute('data-toggle');
+    S.open = S.open === id ? null : id;
+    render();
+  });
+  document.getElementById('weeks').addEventListener('click', e => {
+    const b = e.target.closest('button[data-week]');
+    if (!b || b.getAttribute('data-locked') === '1') return;
+    S.week = Number(b.getAttribute('data-week')); S.open = null; render();
+  });
+  document.getElementById('filters').addEventListener('click', e => {
+    const b = e.target.closest('button[data-filter]');
+    if (!b) return; S.filter = b.getAttribute('data-filter'); S.open = null; render();
+  });
+  document.getElementById('sorts').addEventListener('click', e => {
+    const b = e.target.closest('button[data-sort]');
+    if (!b) return; S.sort = b.getAttribute('data-sort'); render();
+  });
+  document.getElementById('q').addEventListener('input', e => { S.query = e.target.value; render(); });
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+nfl_data_py>=0.3.3
+pandas>=2.0
+numpy>=1.26
+scikit-learn>=1.4
+xgboost>=2.0
+pyarrow>=14.0

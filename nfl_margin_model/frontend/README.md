@@ -1,0 +1,78 @@
+# NFL Prediction Model — frontend
+
+A self-contained web app for the NFL point-margin model. Each week's games are
+shown as a ledger: the model's line, win-probability split, the market line and
+the edge between them, with an expandable panel per game (model vs market,
+projected-margin scale, game info).
+
+## Files
+
+| File | What it is |
+|------|-----------|
+| `index.html` | **The deliverable.** One self-contained file — open in any browser. No install, no server, no internet. This is what you send people. |
+| `template.html` | The app UI (a `/*__DATA__*/` placeholder for predictions, `/*__FONTS__*/` for the embedded typefaces). **Edit this to change the design.** |
+| `generate.py` | The **refresh command**. Runs the model and bakes predictions into `index.html` + `preds.json`. |
+| `preds.json` | The prediction data alone. Only needed for the hosted auto-refresh mode below. |
+| `logos_cache.json` | Team logos, downscaled and base64'd. Fetched once, then reused. |
+| `fonts_cache.json` | Archivo + JetBrains Mono woff2 (latin subset), base64'd. Fetched once, then reused. |
+
+## Refreshing the predictions (you run this)
+
+```bash
+# from the project root (the folder containing the nfl_margin_model package):
+python -m nfl_margin_model.frontend.generate
+
+# instant rebuild from cached parquet, for development:
+python -m nfl_margin_model.frontend.generate --cache <dir>
+```
+
+This pulls the latest games via `nfl_data_py`, retrains, and rewrites
+`index.html` + `preds.json`.
+
+## Sharing it — no internet required
+
+`index.html` is **completely self-contained**: predictions, team logos, both
+typefaces, all CSS and JS are embedded in the file. There are zero external
+references — no CDN, no fonts server, no analytics. It renders identically on a
+machine that has never been online.
+
+**A. Send the file (snapshot).** Email/AirDrop/Slack/USB `index.html`.
+Recipients double-click it; it opens in any browser. Nothing else needed.
+- Some mail clients block `.html` attachments — zip it, or send it via a file
+  share. In Gmail/Drive, "preview not available" is normal: click **Download**.
+- It shows whatever was current when you generated it. To update someone, re-run
+  `generate.py` and send the new file.
+
+**B. Host it (recipients refresh for your latest).** Put `index.html` **and**
+`preds.json` on any static host (GitHub Pages, Netlify, S3, an internal share).
+The page tries a relative `preds.json` on load and uses it when present, so a
+refresh shows your newest numbers; re-upload `preds.json` to update everyone.
+This is the *only* mode that touches a network, and it is optional — that fetch
+failing (as it does on `file://`) simply leaves the embedded predictions in
+place.
+
+> Recipients can never re-run the *model* — that needs Python and the data feed.
+> "Refresh" in mode B means "pull your latest published numbers."
+
+## Training window (bump this each year)
+
+`TRAIN_THROUGH` lives in `nfl_margin_model/predict.py` (currently **2025**). The
+model trains on every season through it and displays the season after as pure
+hold-out — so today it trains through 2025 and shows **2026**. Override per-run:
+
+```bash
+python -m nfl_margin_model.frontend.generate --train-through 2025
+```
+
+The new season also has to be available to `nfl_data_py` and inside
+`config.PBP_YEARS`.
+
+## Notes
+
+- Predictions are **out-of-sample** (seasons later than `TRAIN_THROUGH`).
+- The model line is graded against the **actual game margin**, not against the
+  market spread. The market line is shown for comparison only and is not an
+  input to the model. For analysis, not wagering advice.
+- Weeks with no games yet are dimmed in the rail and show `—`.
+- Injury-driven adjustments (the Pro Bowl absence correction) only engage once
+  weekly injury reports exist for the season being predicted.
