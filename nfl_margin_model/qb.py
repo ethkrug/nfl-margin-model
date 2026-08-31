@@ -132,7 +132,21 @@ def _build_role_features(starters, depth_charts, injuries):
     inj["season"] = inj["season"].astype(int)
     inj["week"] = inj["week"].astype(int)
     inj = inj.rename(columns={"gsis_id": "qb1_id"})
-    inj = inj.drop_duplicates(["season", "week", "team", "qb1_id"], keep="first")
+    # A player can appear twice in a week with conflicting report statuses (2
+    # such cases in 2010-2025, both disagreeing on whether he was out). Keeping
+    # whichever row came first made that an arbitrary, layout-dependent call, so
+    # rank by severity and keep the most severe: if any report rules the starter
+    # out, he is out.
+    inj["_inactive"] = inj["report_status"].isin(config.QB_INACTIVE_STATUSES).astype(int)
+    inj = (
+        inj.sort_values(
+            ["season", "week", "team", "qb1_id", "_inactive"],
+            ascending=[True, True, True, True, False],
+            kind="mergesort",
+        )
+        .drop_duplicates(["season", "week", "team", "qb1_id"], keep="first")
+        .drop(columns="_inactive")
+    )
 
     s = s.merge(inj, on=["season", "week", "team", "qb1_id"], how="left")
 
@@ -185,9 +199,15 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
     qb_game["game_date"] = pd.to_datetime(qb_game["game_date"], errors="coerce")
 
     # 3) starter = QB with the most dropbacks for that team in that game.
+    # qb_dropbacks alone is not a total order -- 14 of ~8,700 team-games have two
+    # QBs tied on the most dropbacks -- and pandas' default sort is unstable, so
+    # the "starter" for those games depended on incidental array layout. Break
+    # the tie on passer_player_id. Same class of bug as _build_qb_depth above.
     starters = (
         qb_game.sort_values(
-            ["game_id", "posteam", "qb_dropbacks"], ascending=[True, True, False]
+            ["game_id", "posteam", "qb_dropbacks", "passer_player_id"],
+            ascending=[True, True, False, True],
+            kind="mergesort",
         )
         .groupby(["game_id", "posteam"], as_index=False)
         .first()

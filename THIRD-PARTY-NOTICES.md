@@ -28,8 +28,11 @@ Copyright 2020 The JetBrains Mono Project Authors
 Neither font is sold, and neither is distributed under a Reserved Font Name that
 this project modifies.
 
-`nfl_margin_model/frontend/fonts_cache.json` is the only tracked file containing
-font data.
+Two tracked files carry the font binaries: `nfl_margin_model/frontend/fonts_cache.json`
+(the build cache) and `nfl_margin_model/frontend/index_no_logos.html` (the built
+page, which embeds them so it renders offline). Both are covered by the notices
+above and by `licenses/OFL-1.1.txt`, which is what the OFL requires of a
+redistributed font.
 
 ## NFL club logos — deliberately NOT redistributed
 

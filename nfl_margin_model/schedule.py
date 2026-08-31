@@ -108,6 +108,9 @@ def build_starters_out(depth_charts, injuries):
     ].dropna(subset=["season", "week", "team", "player_id"]).copy()
     starters["season"] = starters["season"].astype(int)
     starters["week"] = starters["week"].astype(int)
+    # Only the COUNT of ruled-out starters is used downstream, and the dedup key
+    # is the player's identity, so which duplicate row survives cannot change the
+    # result -- no tie-break needed here.
     starters = starters.drop_duplicates(["season", "week", "team", "player_id"])
 
     inj = injuries[["season", "week", "team", "gsis_id", "report_status"]].copy()
@@ -118,7 +121,16 @@ def build_starters_out(depth_charts, injuries):
     inj["week"] = inj["week"].astype(int)
     inj["is_out"] = inj["report_status"].isin(config.STARTER_OUT_STATUSES).astype(int)
     inj = inj.rename(columns={"gsis_id": "player_id"})
-    inj = inj.drop_duplicates(["season", "week", "team", "player_id"])
+    # Conflicting duplicate reports exist (see qb.add_qb_features): keep the most
+    # severe so "was this starter ruled out?" does not depend on row order.
+    inj = (
+        inj.sort_values(
+            ["season", "week", "team", "player_id", "is_out"],
+            ascending=[True, True, True, True, False],
+            kind="mergesort",
+        )
+        .drop_duplicates(["season", "week", "team", "player_id"], keep="first")
+    )
 
     merged = starters.merge(
         inj[["season", "week", "team", "player_id", "is_out"]],
@@ -194,7 +206,15 @@ def build_pb_injury_features(injuries, pro_bowlers):
     inj["season"] = inj["season"].astype(int)
     inj["week"] = inj["week"].astype(int)
     inj = inj[inj["report_status"].isin(config.STARTER_OUT_STATUSES)]
-    inj = inj.drop_duplicates(["season", "week", "team", "gsis_id"])
+    # The kept row supplies `position` (QB/OL classification). No ruled-out
+    # duplicate currently disagrees on position, so this is a no-op today; the
+    # explicit order keeps it that way if the feed ever changes.
+    inj = (
+        inj.sort_values(
+            ["season", "week", "team", "gsis_id", "position"], kind="mergesort"
+        )
+        .drop_duplicates(["season", "week", "team", "gsis_id"], keep="first")
+    )
 
     cols = PB_INJ_COLS
     frames = []

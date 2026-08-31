@@ -173,8 +173,9 @@ constraint the code is most careful about:
   schedule, every week;
 - Pro Bowl pedigree for a season is drawn only from **prior** seasons;
 - the replacement-level QB baseline is fit on train-era games only;
-- the projected upcoming season is purely additive — verified that appending it
-  changes 0 of 360 already-played feature rows;
+- the projected upcoming season is purely additive — verified by building the
+  frame both ways and diffing: appending it changes **0 feature cells across all
+  8,694 already-played team-game rows**, and only adds 32 new ones;
 - every ordering that selects a row (designated starter, latest depth-chart
   snapshot, primary starter) is a *total* order under a stable sort. Ranking on
   a column with ties and letting the sort break them means the winner depends on
@@ -230,9 +231,9 @@ about a tenth of a point is noise no matter how good the story is.
 
 ## The web app
 
-`nfl_margin_model/frontend/` builds a **single self-contained `index.html`** —
-predictions, team logos and both typefaces embedded, zero external requests. It
-opens on any machine, offline, with no install. Each week is a ledger of games
+`nfl_margin_model/frontend/` builds a **single self-contained HTML file** —
+predictions, both typefaces and (in the local build) the club logos all embedded,
+zero external requests. It opens on any machine, offline, with no install. Each week is a ledger of games
 showing the model's line, the win-probability split, the market line, and an
 expandable per-game panel.
 
@@ -255,14 +256,14 @@ Only the `--no-logos` build is tracked here
 club logos are trademarks of their owners and not this project's to
 redistribute, so the logo build stays local and fetches its own copies — see
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). It is the same design either
-way: the template draws the colour tile and abbreviation, and overlays a logo
-only when one is present.
+way: each team gets a tile in its own colour, carrying the club logo when one is
+available and the team abbreviation when it is not.
 
 The published variant needs no image dependencies at all, so it builds from a
 fresh clone with nothing but the tracked font cache. Once built, send the file
-to someone, or host it with its `preds.json` on any static host so recipients
-pull your latest numbers on refresh — `--no-logos --out docs/index.html` puts a
-publishable page where GitHub Pages can serve it. Full details in
+to someone, or host it alongside its own payload (`index_no_logos.html` +
+`preds_no_logos.json`) on any static host so recipients pull your latest numbers
+on refresh. Full details in
 [`nfl_margin_model/frontend/README.md`](nfl_margin_model/frontend/README.md).
 
 `TRAIN_THROUGH` in `predict.py` controls the training window — the model trains on
@@ -275,6 +276,10 @@ once a year.**
 
 ```
 run_pipeline.py               entry point
+requirements.txt              runtime dependencies
+LICENSE                       MIT, covering the source code
+THIRD-PARTY-NOTICES.md        fonts (bundled, OFL) and club logos (not bundled)
+licenses/OFL-1.1.txt          the font licence itself
 nfl_margin_model/
   config.py                   every tunable knob, with the reasoning for each
   data.py                     nflverse loaders + schema unification
@@ -290,8 +295,19 @@ nfl_margin_model/
   pipeline.py                 orchestration
   console.py                  dependency-free terminal formatting
   frontend/                   self-contained web app
+    template.html             the UI; edit this to change the design
+    generate.py               builds a page (--no-logos for the tracked variant)
+    render_static.py          JS-free variant of the same page
+    index_no_logos.html       the tracked, publishable build
+    preds_no_logos.json       its prediction payload
+    fonts_cache.json          the two OFL typefaces, base64'd
   pro-bowl/                   Pro Bowl exports (data not tracked — see its README)
 ```
+
+The logo-bearing builds (`index.html`, `index_offline.html`, `preds.json`,
+`logos_cache.json`) and the Pro Football Reference exports are generated or
+supplied locally and are deliberately untracked; see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 `config.py` is worth reading on its own: each constant carries the backtest that
 set it, including the ones that argue against changing it.
