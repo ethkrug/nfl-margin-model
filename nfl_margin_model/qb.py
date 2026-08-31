@@ -104,13 +104,15 @@ def _build_qb_depth(depth_charts):
     return qb_depth, qb1
 
 
-def _build_role_features(starters, depth_charts, injuries):
+def _build_role_features(starters, qb_depth, qb1, injuries):
     """Per team-game role features from depth charts + injuries.
+
+    ``qb_depth``/``qb1`` come from :func:`_build_qb_depth`; the caller computes
+    them once because the starter selection needs ``qb1`` too.
 
     Returns a frame keyed on ``["game_id", "team"]`` with ``qb_depth_order``,
     ``is_designated_starter`` and ``starter_inactive``.
     """
-    qb_depth, qb1 = _build_qb_depth(depth_charts)
 
     s = starters[["game_id", "season", "week", "posteam", "passer_player_id"]].rename(
         columns={"posteam": "team", "passer_player_id": "player_id"}
@@ -201,16 +203,32 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
     # 3) starter = QB with the most dropbacks for that team in that game.
     # qb_dropbacks alone is not a total order -- 14 of ~8,700 team-games have two
     # QBs tied on the most dropbacks -- and pandas' default sort is unstable, so
-    # the "starter" for those games depended on incidental array layout. Break
-    # the tie on passer_player_id. Same class of bug as _build_qb_depth above.
+    # the "starter" for those games used to depend on incidental array layout.
+    #
+    # Break the tie on the evidence rather than arbitrarily: prefer whoever the
+    # team published as QB1 on that week's depth chart. That is a pre-game feed,
+    # so it is leakage-safe, and it is the same question the tie is asking. Fall
+    # back to passer_player_id only when the chart cannot separate them (neither
+    # is QB1, or the team-week has no depth data), purely so the result is
+    # reproducible. Measured: the chart settles 13 of the 14 ties, 1 falls
+    # through, 0 are ambiguous. Same bug class as _build_qb_depth above.
+    qb_depth, qb1 = _build_qb_depth(depth_charts)
+    qb_game = qb_game.merge(
+        qb1.rename(columns={"team": "posteam"}),
+        on=["season", "week", "posteam"], how="left",
+    )
+    qb_game["_is_qb1"] = (
+        qb_game["passer_player_id"] == qb_game["qb1_id"]
+    ).astype(int)
     starters = (
         qb_game.sort_values(
-            ["game_id", "posteam", "qb_dropbacks", "passer_player_id"],
-            ascending=[True, True, False, True],
+            ["game_id", "posteam", "qb_dropbacks", "_is_qb1", "passer_player_id"],
+            ascending=[True, True, False, False, True],
             kind="mergesort",
         )
         .groupby(["game_id", "posteam"], as_index=False)
         .first()
+        .drop(columns=["_is_qb1", "qb1_id"])
     )
 
     # 4) roll each QB's OWN prior form. shift(1) excludes the current game (no
@@ -281,7 +299,7 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
         starters[f"qb_quality_{w}"] = (1.0 - r) * raw_quality + r * career
 
     # 7) role features from depth charts + injuries (leakage-safe pre-game feeds).
-    role = _build_role_features(starters, depth_charts, injuries)
+    role = _build_role_features(starters, qb_depth, qb1, injuries)
 
     # 8) merge starter features onto team_games_roll (one starter per team-game).
     qb_quality_cols = [f"qb_quality_{w}" for w in windows]

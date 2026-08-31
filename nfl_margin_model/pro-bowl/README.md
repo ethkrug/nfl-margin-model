@@ -52,11 +52,11 @@ the only difference is a small loss of accuracy:
 
 | | 2024 RMSE | 2025 RMSE | Pooled RMSE | Pooled MAE | Winners |
 |---|---|---|---|---|---|
-| With these exports | 12.61 | 12.45 | **12.53** | 9.82 | 68.5% |
-| Without them | 12.67 | 12.49 | **12.58** | 9.84 | 68.5% |
+| With these exports | 12.61 | 12.45 | **12.53** | 9.83 | 68.8% |
+| Without them | 12.67 | 12.50 | **12.59** | 9.86 | 68.8% |
 
-**+0.05 pooled RMSE, and identical straight-up winners** — identical per season
-too, 70.9% on 2024 and 66.1% on 2025 either way. The winners column matches
+**+0.06 pooled RMSE, and identical straight-up winners** — identical per season
+too, 70.7% on 2024 and 66.8% on 2025 either way. The winners column matches
 exactly rather than approximately because `PB_CORRECTION_NO_FLIP` forbids
 the adjustment from carrying a prediction across zero — it can sharpen a margin,
 never change who is favoured. So without this data you reproduce every
@@ -64,5 +64,5 @@ directional call in the repo and land a twentieth of a point wider on margin.
 
 The correction is still worth having: on the subset it actually targets — team-games
 where two or more Pro Bowlers are ruled out — it is worth roughly −0.19 RMSE. It is
-simply diluted to +0.05 once averaged over the ~94% of team-games where nobody
+simply diluted to +0.06 once averaged over the ~94% of team-games where nobody
 notable is out.

@@ -17,9 +17,9 @@ Walk-forward holdouts, at the team-game level (`python -m nfl_margin_model.evalu
 
 | Holdout season | Trained on | n | RMSE | Mean abs. error | Straight-up winners |
 |---|---|---|---|---|---|
-| 2024 | 2010–2023 | 570 | 12.61 | 9.83 pts | 70.9% |
-| 2025 | 2010–2024 | 570 | 12.45 | 9.80 pts | 66.1% |
-| **Pooled** | — | **1,140** | **12.53** | **9.82 pts** | **68.5%** |
+| 2024 | 2010–2023 | 570 | 12.61 | 9.84 pts | 70.7% |
+| 2025 | 2010–2024 | 570 | 12.45 | 9.81 pts | 66.8% |
+| **Pooled** | — | **1,140** | **12.53** | **9.83 pts** | **68.8%** |
 
 169 features, 285 games per season, each contributing one row per team.
 
@@ -40,10 +40,10 @@ these are the numbers a fresh clone actually produces:
 
 | | RMSE (2024 / 2025 / pooled) | MAE | Winners |
 |---|---|---|---|
-| With Pro Bowl data | 12.61 / 12.45 / **12.53** | 9.82 | 68.5% |
-| Without (fresh clone) | 12.67 / 12.49 / **12.58** | 9.84 | 68.5% |
+| With Pro Bowl data | 12.61 / 12.45 / **12.53** | 9.83 | 68.8% |
+| Without (fresh clone) | 12.67 / 12.50 / **12.59** | 9.86 | 68.8% |
 
-So a clone lands **0.05 RMSE worse** pooled, and picks **exactly the same
+So a clone lands **0.06 RMSE worse** pooled, and picks **exactly the same
 winners** — the Pro Bowl correction is gated so it can sharpen a margin but never
 flip which team is favoured, which is why that column is identical rather than
 merely close. Everything else in this README reproduces exactly.
