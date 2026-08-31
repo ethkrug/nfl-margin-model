@@ -65,7 +65,10 @@ def run(show_previews: bool = True) -> Result:
 
     # --- 4. QB features ------------------------------------------------
     console.rule("4 · Starting-QB features")
-    depth_charts = data.load_depth_charts()
+    # Loaded before the depth charts: the new daily-snapshot schema needs the
+    # kickoff dates to be mapped onto weeks. Reused by stage 4b below.
+    schedules = data.load_schedules()
+    depth_charts = data.load_depth_charts(schedules)
     injuries = data.load_injuries()
     team_games_roll, replacement_epa = qb.add_qb_features(
         team_games_roll, play_by_play_df, depth_charts, injuries
@@ -73,7 +76,6 @@ def run(show_previews: bool = True) -> Result:
 
     # --- 4b. Schedule/travel + matchup features -----------------------
     console.rule("4b · Schedule, travel & matchup features")
-    schedules = data.load_schedules()
     console.step("Attaching rest / bye / short-week / travel / starters-out")
     team_games_roll = schedule.add_schedule_features(
         team_games_roll, schedules, depth_charts, injuries

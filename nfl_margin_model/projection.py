@@ -67,7 +67,9 @@ def depth_qb1(depth, project_season):
             & (nd["depth_rank"] == 1)].dropna(subset=["week", "team", "player_id"])
     if nd.empty:
         return {}
-    latest = nd.sort_values("week").groupby("team").tail(1)
+    # Several QBs can share depth_rank 1 in a week, so break the tie on
+    # player_id rather than on array order.
+    latest = nd.sort_values(["week", "player_id"], kind="mergesort").groupby("team").tail(1)
     return dict(zip(latest["team"], latest["player_id"]))
 
 
@@ -85,11 +87,15 @@ def override_projected_qb(tgr, project_season, train_through, replacement, depth
     played = tgr[(tgr["season"] <= train_through) & tgr["qb_player_id"].notna()]
     if played.empty:
         return tgr
-    hist = played.sort_values(["season", "week"]).groupby("qb_player_id").tail(1).set_index("qb_player_id")
+    hist = (played.sort_values(["season", "week"], kind="mergesort")
+            .groupby("qb_player_id").tail(1).set_index("qb_player_id"))
     latest = tgr[(tgr["season"] == train_through) & tgr["qb_player_id"].notna()]
     latest = latest if not latest.empty else played
     counts = latest.groupby(["team", "qb_player_id"]).size().reset_index(name="n")
-    primary = counts.sort_values("n").groupby("team").tail(1).set_index("team")["qb_player_id"].to_dict()
+    # Two QBs can split a season evenly; tie-break on player_id so "primary
+    # starter" is reproducible rather than whichever row landed last.
+    primary = (counts.sort_values(["n", "qb_player_id"], kind="mergesort")
+               .groupby("team").tail(1).set_index("team")["qb_player_id"].to_dict())
     dq1 = depth_qb1(depth, project_season) if depth is not None else {}
 
     for i in tgr.index[tgr["season"] == project_season]:

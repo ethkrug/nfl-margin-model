@@ -17,11 +17,36 @@ Walk-forward holdouts, at the team-game level (`python -m nfl_margin_model.evalu
 
 | Holdout season | Trained on | n | RMSE | Mean abs. error | Straight-up winners |
 |---|---|---|---|---|---|
-| 2024 | 2010–2023 | 570 | 12.61 | 9.83 pts | 71.1% |
-| 2025 | 2010–2024 | 570 | 12.44 | 9.80 pts | 66.1% |
-| **Pooled** | — | **1,140** | **12.53** | **9.82 pts** | **68.6%** |
+| 2024 | 2010–2023 | 570 | 12.61 | 9.83 pts | 70.9% |
+| 2025 | 2010–2024 | 570 | 12.45 | 9.80 pts | 66.1% |
+| **Pooled** | — | **1,140** | **12.53** | **9.82 pts** | **68.5%** |
 
 169 features, 285 games per season, each contributing one row per team.
+
+### Reproducing these numbers
+
+Every figure in this README was produced by running the command above against
+live nflverse data on the current commit, not carried over from an earlier
+version of the model. Runs are deterministic: XGBoost is pinned
+(`random_state=42`, `tree_method="hist"`) and every sort that picks a row is a
+total order under a stable sort, so the same inputs give bit-identical output
+across processes. That property is load-bearing — it is what makes a 0.05 RMSE
+difference readable as a real effect rather than as run-to-run jitter.
+
+One input is **not** in this repo: the Pro Bowl selections (see
+[Data and caveats](#data-and-caveats)). Without them the pipeline still runs —
+every `pb_*` feature is simply zero — but the results are slightly worse, and
+these are the numbers a fresh clone actually produces:
+
+| | RMSE (2024 / 2025 / pooled) | MAE | Winners |
+|---|---|---|---|
+| With Pro Bowl data | 12.61 / 12.45 / **12.53** | 9.82 | 68.5% |
+| Without (fresh clone) | 12.67 / 12.49 / **12.58** | 9.84 | 68.5% |
+
+So a clone lands **0.05 RMSE worse** pooled, and picks **exactly the same
+winners** — the Pro Bowl correction is gated so it can sharpen a margin but never
+flip which team is favoured, which is why that column is identical rather than
+merely close. Everything else in this README reproduces exactly.
 
 The market's own closing spread is **not** an input to the model. It appears in
 the frontend only, as something to compare against.
@@ -35,15 +60,20 @@ git clone https://github.com/ethkrug/nfl-margin-model.git
 cd nfl-margin-model
 pip install -r requirements.txt
 
-# full pipeline: load -> features -> train -> report val/test metrics
-python run_pipeline.py          # or: python -m nfl_margin_model
-
-# walk-forward holdout evaluation (the numbers above)
+# walk-forward holdout evaluation -- the authoritative numbers above
 python -m nfl_margin_model.evaluate
+
+# the narrated end-to-end pipeline, for reading the stages
+python run_pipeline.py          # or: python -m nfl_margin_model
 
 # rebuild the web app with the latest games
 python -m nfl_margin_model.frontend.generate
 ```
+
+`evaluate` and the frontend both go through `predict.py`; `run_pipeline.py` is
+the readable narration of the same feature engineering, split out so the stages
+can be followed one at a time. The two now share a depth-chart loader, so they
+see the same features.
 
 The first run downloads ~15 seasons of play-by-play from nflverse and takes a
 few minutes. Both `evaluate` and `generate` accept `--cache <dir>` to read
@@ -130,12 +160,21 @@ Every feature is built from information available before kickoff, and this is th
 constraint the code is most careful about:
 
 - all rolling stats are shifted, so a game never sees itself;
-- 2025+ depth charts are daily snapshots — each game uses the last snapshot
-  *before* that week's kickoff;
+- 2025+ depth charts are daily snapshots rather than weekly rows, so they are
+  date-mapped: a week's chart is the last snapshot taken before that week's
+  **first** kickoff, and snapshots taken after the season's final kickoff are
+  discarded rather than folded into the last week. Verified against the 2025
+  schedule, every week;
 - Pro Bowl pedigree for a season is drawn only from **prior** seasons;
 - the replacement-level QB baseline is fit on train-era games only;
 - the projected upcoming season is purely additive — verified that appending it
-  changes 0 of 360 already-played feature rows.
+  changes 0 of 360 already-played feature rows;
+- every ordering that selects a row (designated starter, latest depth-chart
+  snapshot, primary starter) is a *total* order under a stable sort. Ranking on
+  a column with ties and letting the sort break them means the winner depends on
+  incidental array layout — in this codebase that was live, and unrelated rows
+  in one season could silently reassign the starting quarterback in another (see
+  [Reproducibility](#reproducing-these-numbers)).
 
 ---
 

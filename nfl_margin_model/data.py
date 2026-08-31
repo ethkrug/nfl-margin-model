@@ -49,12 +49,21 @@ def _new_depth_to_old(new, schedules):
         else:
             wk = kk.index.values.astype(int)
             kd = kk.values.astype("datetime64[ns]")
-            idx = np.clip(np.searchsorted(kd, g["date"].values.astype("datetime64[ns]"),
-                                          side="left"), 0, len(wk) - 1)
-            g["week"] = wk[idx]
+            idx = np.searchsorted(kd, g["date"].values.astype("datetime64[ns]"),
+                                  side="left")
+            # A snapshot maps to the next week that has not kicked off yet.
+            # Anything past the final week's kickoff is post-season/offseason and
+            # therefore reflects roster state AFTER that season's last games; it
+            # is dropped rather than clipped back into the last week, which would
+            # hand the final week a chart built from its own future.
+            keep = idx < len(wk)
+            g = g[keep].copy()
+            g["week"] = wk[idx[keep]]
         parts.append(g)
     new = pd.concat(parts, ignore_index=True)
-    new = new.sort_values("date").groupby(
+    # Total order + stable sort: ``tail(1)`` must pick the latest snapshot on the
+    # row's own merits, never on incidental array layout (see _build_qb_depth).
+    new = new.sort_values(["date", "gsis_id"], kind="mergesort").groupby(
         ["season", "week", "team", "gsis_id"], as_index=False).tail(1)
 
     return pd.DataFrame({
@@ -109,10 +118,22 @@ def load_data():
     return weekly_df, play_by_play_df
 
 
-def load_depth_charts():
-    """Import weekly team depth charts (used to identify the designated QB1)."""
+def load_depth_charts(schedules=None):
+    """Import weekly team depth charts (used to identify the designated QB1).
+
+    Routed through :func:`load_depth_charts_unified` so that seasons on the new
+    daily-snapshot schema are date-mapped onto NFL weeks like every other season.
+    Reading them raw instead drops those seasons entirely downstream (they carry
+    no ``season``/``week``/``formation``), which silently blanks the starter and
+    injury-forced-backup features for exactly the most recent seasons.
+
+    ``schedules`` supplies the kickoff dates that mapping needs; it is loaded
+    here when the caller has not already got it.
+    """
     console.step("Importing depth charts")
-    depth_charts = nfl.import_depth_charts(list(config.PBP_YEARS))
+    if schedules is None:
+        schedules = nfl.import_schedules(list(config.PBP_YEARS))
+    depth_charts = load_depth_charts_unified(config.PBP_YEARS, schedules)
     console.info(f"depth_charts: {len(depth_charts):,} rows")
     return depth_charts
 

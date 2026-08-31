@@ -80,15 +80,23 @@ def _build_qb_depth(depth_charts):
     qb_depth["week"] = qb_depth["week"].astype(int)
 
     qb_depth = qb_depth[["season", "week", "team", "player_id", "depth_rank"]]
-    # One row per (team-week, player); keep the best (lowest) rank if duplicated.
+    # Ties on depth_rank are common -- 155 of ~9,000 team-weeks list two or more
+    # QBs at the same rank -- so ``depth_rank`` alone is not a total order, and
+    # pandas' default quicksort is NOT stable. Sorting on rank alone therefore
+    # let the winner of a tie depend on the surrounding array layout: adding or
+    # removing unrelated rows elsewhere in the frame silently reassigned QB1 for
+    # team-weeks in other seasons entirely. ``player_id`` makes the order total,
+    # and mergesort keeps it stable, so the result depends only on the rows in
+    # each team-week.
+    sort_key = ["depth_rank", "player_id"]
     qb_depth = (
-        qb_depth.sort_values("depth_rank")
+        qb_depth.sort_values(sort_key, kind="mergesort")
         .drop_duplicates(["season", "week", "team", "player_id"], keep="first")
     )
 
     # Designated starter = the QB with the lowest depth rank that week.
     qb1 = (
-        qb_depth.sort_values("depth_rank")
+        qb_depth.sort_values(sort_key, kind="mergesort")
         .groupby(["season", "week", "team"], as_index=False)
         .first()[["season", "week", "team", "player_id"]]
         .rename(columns={"player_id": "qb1_id"})

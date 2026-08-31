@@ -42,10 +42,27 @@ CSV for it.
 ## Running without it
 
 If this directory holds no exports, `data.load_pro_bowlers` logs a line saying so
-and returns empty. Every `pb_*` feature is then simply zero, the Pro Bowl absence
-correction becomes a no-op, and the pipeline runs end to end and trains normally —
-it just loses that one signal. Feature *count* and frame shape are unchanged.
+and returns empty. Every `pb_*` feature is then zero, the Pro Bowl absence
+correction fits a slope of exactly 0.000 and becomes a no-op, and the pipeline
+runs end to end and trains normally. Feature count and frame shape are unchanged
+(169 features either way), so the comparison below is like for like.
 
-For what that signal is worth, see "Pro Bowl absence correction" in the top-level
-README: roughly −0.19 RMSE on team-games where two or more Pro Bowlers are ruled
-out, and it helped in all five walk-forward test seasons.
+Measured on the same walk-forward evaluation (`python -m nfl_margin_model.evaluate`),
+the only difference is a small loss of accuracy:
+
+| | 2024 RMSE | 2025 RMSE | Pooled RMSE | Pooled MAE | Winners |
+|---|---|---|---|---|---|
+| With these exports | 12.61 | 12.45 | **12.53** | 9.82 | 68.5% |
+| Without them | 12.67 | 12.49 | **12.58** | 9.84 | 68.5% |
+
+**+0.05 pooled RMSE, and identical straight-up winners** — identical per season
+too, 70.9% on 2024 and 66.1% on 2025 either way. The winners column matches
+exactly rather than approximately because `PB_CORRECTION_NO_FLIP` forbids
+the adjustment from carrying a prediction across zero — it can sharpen a margin,
+never change who is favoured. So without this data you reproduce every
+directional call in the repo and land a twentieth of a point wider on margin.
+
+The correction is still worth having: on the subset it actually targets — team-games
+where two or more Pro Bowlers are ruled out — it is worth roughly −0.19 RMSE. It is
+simply diluted to +0.05 once averaged over the ~94% of team-games where nobody
+notable is out.
