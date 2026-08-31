@@ -32,34 +32,47 @@ access and Pillow.
 ## Refreshing the predictions (you run this)
 
 ```bash
-# from the project root (the folder containing the nfl_margin_model package):
+# from the project root (the folder containing the nfl_margin_model package).
+# start here -- works anywhere, no image library, no image downloads:
+python -m nfl_margin_model.frontend.generate --no-logos
+
+# optional, local only: same page with club logos embedded.
+# needs Pillow, and fetches 32 logos from ESPN on first run:
 python -m nfl_margin_model.frontend.generate
 
-# instant rebuild from cached parquet, for development:
-python -m nfl_margin_model.frontend.generate --cache <dir>
+# instant rebuild from cached parquet, for development (either variant):
+python -m nfl_margin_model.frontend.generate --no-logos --cache <dir>
 ```
 
-This pulls the latest games via `nfl_data_py`, retrains, and rewrites
-`index.html` + `preds.json`.
+Both pull the latest games via `nfl_data_py` and retrain. `--no-logos` rewrites
+`index_no_logos.html` + `preds_no_logos.json` (the tracked, publishable pair);
+without the flag it rewrites `index.html` + `preds.json`, which are untracked.
 
 ## Sharing it — no internet required
 
-`index.html` is **completely self-contained**: predictions, team logos, both
-typefaces, all CSS and JS are embedded in the file. There are zero external
-references — no CDN, no fonts server, no analytics. It renders identically on a
-machine that has never been online.
+Either build is **completely self-contained**: predictions, typefaces (and the
+club logos, in the logo build), all CSS and JS are embedded in the file. There
+are zero external references — no CDN, no fonts server, no analytics. It renders
+identically on a machine that has never been online.
 
-**A. Send the file (snapshot).** Email/AirDrop/Slack/USB `index.html`.
-Recipients double-click it; it opens in any browser. Nothing else needed.
+Below, "the page" means whichever you built — `index_no_logos.html` or
+`index.html`. **Only the `--no-logos` build is yours to publish**; the logo build
+carries club marks and is for your own use (see
+[THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)).
+
+**A. Send the file (snapshot).** Email/AirDrop/Slack/USB the page. Recipients
+double-click it; it opens in any browser. Nothing else needed.
 - Some mail clients block `.html` attachments — zip it, or send it via a file
   share. In Gmail/Drive, "preview not available" is normal: click **Download**.
 - It shows whatever was current when you generated it. To update someone, re-run
   `generate.py` and send the new file.
 
-**B. Host it (recipients refresh for your latest).** Put `index.html` **and**
-`preds.json` on any static host (GitHub Pages, Netlify, S3, an internal share).
-The page tries a relative `preds.json` on load and uses it when present, so a
-refresh shows your newest numbers; re-upload `preds.json` to update everyone.
+**B. Host it (recipients refresh for your latest).** Put the page **and its own
+payload** on any static host (Netlify, S3, an internal share) — that is
+`index_no_logos.html` + `preds_no_logos.json`, or `index.html` + `preds.json`.
+Each build fetches the payload it was built against (the filename is baked in at
+build time), so the two variants never cross-load; keep the matching pair
+together. Re-upload the payload to update everyone.
 This is the *only* mode that touches a network, and it is optional — that fetch
 failing (as it does on `file://`) simply leaves the embedded predictions in
 place.

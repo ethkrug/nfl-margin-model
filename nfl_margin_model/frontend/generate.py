@@ -209,6 +209,9 @@ def main():
         html = f.read()
     html = html.replace("/*__DATA__*/", data_json)
     html = html.replace("/*__FONTS__*/", _load_fonts())
+    # Point the page's optional refresh-fetch at its own payload, so a hosted
+    # --no-logos build never reloads the logo-bearing one.
+    html = html.replace("/*__PREDS__*/", os.path.basename(preds_path))
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)

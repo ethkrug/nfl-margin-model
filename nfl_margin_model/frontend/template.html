@@ -130,7 +130,11 @@
 (async function () {
   let DATA;
   try { DATA = JSON.parse(document.getElementById('payload').textContent); } catch (e) { DATA = null; }
-  try { const r = await fetch('preds.json', { cache: 'no-store' }); if (r.ok) DATA = await r.json(); } catch (e) {}
+  // Baked in at build time so each variant refreshes from its OWN payload: a
+  // --no-logos page must never pull the logo-bearing preds.json, which would
+  // reintroduce club marks at runtime on a host serving both.
+  const PREDS_URL = "/*__PREDS__*/";
+  try { const r = await fetch(PREDS_URL, { cache: 'no-store' }); if (r.ok) DATA = await r.json(); } catch (e) {}
   const host = document.getElementById('games');
   if (!DATA) { host.innerHTML = '<div style="padding:60px;text-align:center;color:#5b7298;font-size:13px;border:1px dashed #1a2b46;border-radius:12px;">No prediction data found.</div>'; return; }
 

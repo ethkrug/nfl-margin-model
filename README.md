@@ -66,9 +66,15 @@ python -m nfl_margin_model.evaluate
 # the narrated end-to-end pipeline, for reading the stages
 python run_pipeline.py          # or: python -m nfl_margin_model
 
-# rebuild the web app with the latest games
-python -m nfl_margin_model.frontend.generate
+# build the web app with the latest games
+python -m nfl_margin_model.frontend.generate --no-logos
 ```
+
+**Use `--no-logos`.** It is the build that works anywhere: it needs no image
+library and fetches no images, so the only thing it downloads is the game data
+itself. Dropping the flag gives you the same page with each club's logo
+embedded, which additionally needs Pillow and a reachable ESPN — see
+[The web app](#the-web-app) for why the logos are a local-only extra.
 
 `evaluate` and the frontend both go through `predict.py`; `run_pipeline.py` is
 the readable narration of the same feature engineering, split out so the stages
@@ -230,13 +236,17 @@ opens on any machine, offline, with no install. Each week is a ledger of games
 showing the model's line, the win-probability split, the market line, and an
 expandable per-game panel.
 
-It builds in two variants:
+It builds in two variants. **Start with the first one** — it is the one that
+works on any machine, and the one whose output is checked in so you can see what
+you are building before you build it:
 
 ```bash
-# published variant: team-colour tiles with abbreviations, no club marks
+# start here: team-colour tiles with abbreviations, no club marks.
+# no Pillow, no image downloads -- just the game data.
 python -m nfl_margin_model.frontend.generate --no-logos
 
-# local variant: the same page with each club's logo embedded
+# optional, local only: the same page with each club's logo embedded.
+# needs Pillow and fetches 32 logos from ESPN on first run.
 python -m nfl_margin_model.frontend.generate
 ```
 
