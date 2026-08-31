@@ -82,7 +82,7 @@ comparable to the table at the top — only to each other.)
 | Configuration | Test RMSE | R² | Winners |
 |---------------|-----------|-----|---------|
 | Own-team rolled stats + QB only (no opponent) | 13.56 | 0.10 | 62% |
-| **+ opponent strength and `edge_*` differentials** | **12.87** | **0.19** | **65%** |
+| + opponent strength and `edge_*` differentials | **12.87** | **0.19** | **65%** |
 | + defensive opponent-adjustment (shipped) | 12.83 | 0.193 | 65% |
 
 Without opponent information the model is nearly blind: each row sees only one
@@ -122,7 +122,7 @@ isolate among 169 features — fed in as tree inputs, those columns are
 null-to-harmful. So the residual is removed explicitly instead, with a linear
 slope fit on **out-of-fold** residuals pooled across many seasons. It is gated
 (small imbalances are left untouched) and may never flip which team is favoured.
-Walk-forward, it helps in 5 of 5 test seasons.
+Walk-forward, it helps in test seasons.
 
 ### Leakage safety
 
@@ -174,7 +174,7 @@ was implemented properly and evaluated walk-forward, not hand-waved:
 | Roster churn (Pro Bowl arrivals and departures) | Below the noise floor |
 | Stronger QB shrinkage (K = 5, 7, 10, 14) | Degrades monotonically; K = 3 is optimal |
 | Per-week tuning of the prior-season weight | Total spread across 7 schedules is 0.03 RMSE — no leverage |
-| A live weather-forecast integration | *Perfect* weather ties climatology (12.761 vs 12.759); weather moves totals, not margins |
+| A live weather-forecast integration | *Perfect* weather ties climatology (12.761 vs 12.759); weather moves totals much more than margins |
 | Sourcing real offseason QB changes for accuracy | Actual, most-recent and primary starters land within 0.1 RMSE on Week-1 openers — a credibility feature, not an accuracy one |
 
 The recurring lesson: early-season corrections must shut off promptly, and a
