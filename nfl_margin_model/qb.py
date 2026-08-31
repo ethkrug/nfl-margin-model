@@ -50,12 +50,21 @@ def _coalesce(df, *candidates):
     return out
 
 
+# nflverse depth charts carry each franchise's HISTORICAL club code, while
+# play-by-play and schedules use its current one. Left unmapped, every join on
+# team silently misses for the three relocated franchises -- 374 team-games
+# (Raiders 2010-2019, Chargers 2010-2016, Rams 2010-2015), which then fell back
+# to the deep-backup depth sentinel, to starters_out=0 and to zero Pro Bowl
+# churn. Normalising here fixes every consumer of the depth charts at once.
+TEAM_CODE_ALIASES = {"OAK": "LV", "SD": "LAC", "STL": "LA"}
+
+
 def _normalize_depth(depth_charts):
     """Flatten the multi-schema depth charts into stable, typed columns."""
     out = pd.DataFrame(index=depth_charts.index)
     out["season"] = pd.to_numeric(_coalesce(depth_charts, "season"), errors="coerce")
     out["week"] = pd.to_numeric(_coalesce(depth_charts, "week"), errors="coerce")
-    out["team"] = _coalesce(depth_charts, "club_code", "team")
+    out["team"] = _coalesce(depth_charts, "club_code", "team").replace(TEAM_CODE_ALIASES)
     out["player_id"] = _coalesce(depth_charts, "gsis_id")
     out["position"] = _coalesce(depth_charts, "position", "pos_abb")
     out["formation"] = _coalesce(depth_charts, "formation")

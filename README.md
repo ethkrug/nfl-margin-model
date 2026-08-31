@@ -17,9 +17,9 @@ Walk-forward holdouts, at the team-game level (`python -m nfl_margin_model.evalu
 
 | Holdout season | Trained on | n | RMSE | Mean abs. error | Straight-up winners |
 |---|---|---|---|---|---|
-| 2024 | 2010–2023 | 570 | 12.61 | 9.84 pts | 70.7% |
-| 2025 | 2010–2024 | 570 | 12.45 | 9.81 pts | 66.8% |
-| **Pooled** | — | **1,140** | **12.53** | **9.83 pts** | **68.8%** |
+| 2024 | 2010–2023 | 570 | 12.60 | 9.83 pts | 71.6% |
+| 2025 | 2010–2024 | 570 | 12.45 | 9.81 pts | 66.3% |
+| **Pooled** | — | **1,140** | **12.52** | **9.82 pts** | **68.9%** |
 
 169 features, 285 games per season, each contributing one row per team.
 
@@ -40,8 +40,8 @@ these are the numbers a fresh clone actually produces:
 
 | | RMSE (2024 / 2025 / pooled) | MAE | Winners |
 |---|---|---|---|
-| With Pro Bowl data | 12.61 / 12.45 / **12.53** | 9.83 | 68.8% |
-| Without (fresh clone) | 12.67 / 12.50 / **12.59** | 9.86 | 68.8% |
+| With Pro Bowl data | 12.60 / 12.45 / **12.52** | 9.82 | 68.9% |
+| Without (fresh clone) | 12.66 / 12.49 / **12.58** | 9.85 | 68.9% |
 
 So a clone lands **0.06 RMSE worse** pooled, and picks **exactly the same
 winners** — the Pro Bowl correction is gated so it can sharpen a margin but never
@@ -176,6 +176,11 @@ constraint the code is most careful about:
 - the projected upcoming season is purely additive — verified by building the
   frame both ways and diffing: appending it changes **0 feature cells across all
   8,694 already-played team-game rows**, and only adds 32 new ones;
+- depth-chart club codes are normalised to the current franchise codes before
+  any join. nflverse keeps the historical code (`OAK`/`SD`/`STL`) while
+  play-by-play uses the current one, so an unmapped join silently misses 374
+  team-games and hands three franchises a decade of neutral QB and injury
+  features;
 - every ordering that selects a row (designated starter, latest depth-chart
   snapshot, primary starter) is a *total* order under a stable sort. Ranking on
   a column with ties and letting the sort break them means the winner depends on
