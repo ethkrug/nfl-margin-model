@@ -300,8 +300,42 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
                     "passer_player_id", "passer_player_name", "qb_dropbacks"]].copy()
     rep = rep.merge(qb1.rename(columns={"team": "posteam"}),
                     on=["season", "week", "posteam"], how="left")
-    rep["rep_qb_id"] = rep["qb1_id"].fillna(rep["passer_player_id"])
+
+    # A handful of team-weeks have no published chart at all (3 in 2010-2025:
+    # one each for ARI, DEN and NYG). Falling back to THIS game's actual passer
+    # would reintroduce the very leak this section removes, so fall back instead
+    # to whoever started for the team in its previous game -- the best pre-game
+    # guess available, and knowable in advance.
+    prev_all = (starters[["posteam", "game_date", "passer_player_id"]]
+                .rename(columns={"passer_player_id": "prev_qb_id"})
+                .dropna(subset=["game_date"])
+                .sort_values(["game_date", "posteam"], kind="mergesort"))
+    # Prefer a prior starter who is actually a quarterback. A team's last game can
+    # have been started by a non-QB (Denver, 2020 week 12: every QB was ruled out
+    # by covid protocols and a wide receiver took the snaps), and carrying that
+    # forward would name a receiver as the next week's quarterback. Anyone who
+    # appears on a QB depth chart counts; the unfiltered list stays as a second
+    # resort so a team is never left without a candidate.
+    qb_ids = set(qb_depth["player_id"].dropna())
+    prev_qb = prev_all[prev_all["prev_qb_id"].isin(qb_ids)].rename(
+        columns={"prev_qb_id": "prev_qb_listed"}
+    )
+    rep = rep.sort_values(["game_date", "posteam"], kind="mergesort")
+    rep = pd.merge_asof(rep, prev_qb, on="game_date", by="posteam",
+                        direction="backward", allow_exact_matches=False)
+    rep = pd.merge_asof(rep, prev_all, on="game_date", by="posteam",
+                        direction="backward", allow_exact_matches=False)
+    rep["prev_qb_id"] = rep["prev_qb_listed"].fillna(rep["prev_qb_id"])
+    # Last resort is this game's passer, reached only when a team has no prior
+    # game on record at all (the first week of the earliest season).
+    rep["rep_qb_id"] = (rep["qb1_id"]
+                        .fillna(rep["prev_qb_id"])
+                        .fillna(rep["passer_player_id"]))
     rep["qb1_published"] = rep["qb1_id"].notna().astype(int)
+    rep["rep_source"] = np.where(
+        rep["qb1_id"].notna(), "depth_chart",
+        np.where(rep["prev_qb_id"].notna(), "prev_game_starter", "same_game_passer"),
+    )
 
     rep = pd.merge_asof(
         rep.sort_values(["game_date", "rep_qb_id"], kind="mergesort"),
