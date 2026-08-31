@@ -230,12 +230,20 @@ opens on any machine, offline, with no install. Each week is a ledger of games
 showing the model's line, the win-probability split, the market line, and an
 expandable per-game panel.
 
+You build it rather than download it:
+
 ```bash
 python -m nfl_margin_model.frontend.generate
 ```
 
-Send the file to someone, or host `index.html` + `preds.json` on any static host
-so recipients pull your latest numbers on refresh. Full details in
+The built page and its caches are **not tracked in git** — they embed NFL club
+logos, which are trademarks of their owners and not this project's to
+redistribute (see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)). The build
+fetches its own copies, so the first run needs network access; afterwards the
+caches make it offline-repeatable.
+
+Once built, send the file to someone, or host `index.html` + `preds.json` on any
+static host so recipients pull your latest numbers on refresh. Full details in
 [`nfl_margin_model/frontend/README.md`](nfl_margin_model/frontend/README.md).
 
 `TRAIN_THROUGH` in `predict.py` controls the training window — the model trains on
@@ -290,4 +298,10 @@ placing bets.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). That covers the source code in this repository.
+
+The build pulls in third-party material the MIT license cannot speak for: two
+OFL-licensed typefaces, which are bundled with their notices, and NFL club
+logos, which are deliberately not redistributed here at all. What arrives on
+what terms is set out in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

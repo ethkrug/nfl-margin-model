@@ -4,3 +4,4 @@ numpy>=1.26
 scikit-learn>=1.4
 xgboost>=2.0
 pyarrow>=14.0
+Pillow>=10.0.0
