@@ -151,8 +151,8 @@ def _team_meta(abbrs, with_logos=True):
     is present. That build carries no NFL club marks and is therefore safe to
     publish; it also needs neither Pillow nor network access for logos.
     """
-    import nfl_data_py as nfl
-    td = nfl.import_team_desc().set_index("team_abbr")
+    from nfl_margin_model import fetch
+    td = fetch.team_desc().set_index("team_abbr")
     logos = _load_logos(abbrs, td) if with_logos else {}
 
     def meta(ab):

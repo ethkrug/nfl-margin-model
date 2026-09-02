@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import nfl_data_py as nfl
 
-from . import config, console
+from . import config, console, fetch
 
 # nflverse depth charts changed to a daily-snapshot schema from 2025 on (a ``dt``
 # timestamp instead of season/week, with pos_abb/pos_rank instead of
@@ -104,7 +103,7 @@ def team_code_map(schedules=None):
         # No schedule to date the codes with -- do not guess, use the known map.
         return dict(TEAM_CODE_FALLBACK)
     try:
-        td = nfl.import_team_desc()[["team_abbr", "team_id"]].dropna()
+        td = fetch.team_desc()[["team_abbr", "team_id"]].dropna()
         used = pd.concat([
             schedules[["season", "home_team"]].rename(columns={"home_team": "t"}),
             schedules[["season", "away_team"]].rename(columns={"away_team": "t"}),
@@ -131,12 +130,17 @@ def team_code_map(schedules=None):
     return _TEAM_CODE_MAP
 
 
-def load_depth_charts_unified(years, schedules):
+def load_depth_charts_unified(years, schedules, optional=()):
     """Load depth charts across ``years`` in either schema, unified to the old one.
 
     Old-format seasons (< DEPTH_NEW_FORMAT_FROM) load as-is; new daily-snapshot
     seasons are converted via :func:`_new_depth_to_old` and concatenated, so the
     rest of the pipeline sees one consistent (season, week, ...) schema.
+
+    Every requested season must come back with rows, except those named in
+    ``optional`` -- the upcoming season, whose charts are not published until it
+    exists. A silently absent season blanks the starter and injury-forced-backup
+    features for that year, so it is an error rather than a shrug.
     """
     years = list(years)
     team_code_map(schedules)   # warm the cache while a schedule is in hand
@@ -144,10 +148,11 @@ def load_depth_charts_unified(years, schedules):
     new_years = [y for y in years if y >= DEPTH_NEW_FORMAT_FROM]
     frames = []
     if old_years:
-        frames.append(nfl.import_depth_charts(old_years))
+        frames.append(fetch.depth_charts(old_years, optional=optional))
     if new_years:
-        raw = pd.concat([nfl.import_depth_charts([y]) for y in new_years], ignore_index=True)
-        frames.append(_new_depth_to_old(raw, schedules))
+        raw = fetch.depth_charts(new_years, optional=optional)
+        if len(raw):
+            frames.append(_new_depth_to_old(raw, schedules))
     return pd.concat(frames, ignore_index=True)
 
 
@@ -158,15 +163,11 @@ def load_data():
     the original pipeline; only the play-by-play frame drives feature engineering.
     """
     console.step("Importing weekly player data")
-    weekly_df = nfl.import_weekly_data(
-        years=list(config.WEEKLY_YEARS), columns=None, downcast=False
-    )
+    weekly_df = fetch.weekly(list(config.WEEKLY_YEARS), columns=None, downcast=False)
     console.info(f"weekly_df: {len(weekly_df):,} rows")
 
     console.step("Importing play-by-play data")
-    play_by_play_df = nfl.import_pbp_data(
-        list(config.PBP_YEARS), columns=None, downcast=False, cache=False, alt_path=None
-    )
+    play_by_play_df = fetch.pbp(list(config.PBP_YEARS), columns=None, downcast=False)
     console.info(f"play_by_play_df: {len(play_by_play_df):,} rows")
     return weekly_df, play_by_play_df
 
@@ -185,7 +186,7 @@ def load_depth_charts(schedules=None):
     """
     console.step("Importing depth charts")
     if schedules is None:
-        schedules = nfl.import_schedules(list(config.PBP_YEARS))
+        schedules = fetch.schedules(config.PBP_YEARS)
     depth_charts = load_depth_charts_unified(config.PBP_YEARS, schedules)
     console.info(f"depth_charts: {len(depth_charts):,} rows")
     return depth_charts
@@ -194,7 +195,7 @@ def load_depth_charts(schedules=None):
 def load_injuries():
     """Import weekly injury reports (used to flag an unavailable starter)."""
     console.step("Importing injury reports")
-    injuries = nfl.import_injuries(list(config.PBP_YEARS))
+    injuries = fetch.injuries(config.PBP_YEARS)
     console.info(f"injuries: {len(injuries):,} rows")
     return injuries
 
@@ -239,11 +240,11 @@ def load_pro_bowlers():
     import re
 
     console.step("Importing Pro Bowl selections")
-    ids = nfl.import_ids()[["pfr_id", "gsis_id"]].dropna()
+    ids = fetch.ids()[["pfr_id", "gsis_id"]].dropna()
     pfr_to_gsis = dict(zip(ids["pfr_id"], ids["gsis_id"]))
 
     # Name-based fallback index: (normalized name, position family) -> candidates
-    players = nfl.import_players()[
+    players = fetch.players()[
         ["gsis_id", "display_name", "position", "rookie_season", "last_season"]
     ].dropna(subset=["gsis_id", "display_name"])
     by_name = {}
@@ -317,7 +318,7 @@ def load_pro_bowlers():
 def load_schedules():
     """Import game schedules (rest days, neutral site, venue, spread)."""
     console.step("Importing schedules")
-    schedules = nfl.import_schedules(list(config.PBP_YEARS))
+    schedules = fetch.schedules(config.PBP_YEARS)
     console.info(f"schedules: {len(schedules):,} rows")
     return schedules
 

@@ -309,6 +309,7 @@ THIRD-PARTY-NOTICES.md        fonts (bundled, OFL) and club logos (not bundled)
 licenses/OFL-1.1.txt          the font licence itself
 nfl_margin_model/
   config.py                   every tunable knob, with the reasoning for each
+  fetch.py                    nflverse downloads: retries + season-coverage checks
   data.py                     nflverse loaders + schema unification
   features.py                 game/team-game features, opponent adjustment, rolling
   advanced.py                 red zone, explosive plays, pressure, kicking
@@ -346,6 +347,14 @@ set it, including the ones that argue against changing it.
 Data comes from [nflverse](https://github.com/nflverse) via `nfl_data_py`
 (play-by-play, weekly, depth charts, injuries, schedules) and, for Pro Bowl
 selections, from manual Pro-Football-Reference exports.
+
+Those feeds are fetched over HTTPS at run time and occasionally fail on a
+dropped connection. `fetch.py` wraps every one of them: transient failures are
+retried with backoff, and a season that still never arrives raises rather than
+being skipped. That second half matters — `nfl_data_py.import_pbp_data` catches
+its own per-season errors, prints `Data not available for 2011` and returns a
+frame with that season missing, which would otherwise train the model on a hole
+in its history and report success.
 
 **Those PFR exports are not included in this repo** — they aren't mine to
 redistribute. The pipeline detects their absence, says so, and runs normally with

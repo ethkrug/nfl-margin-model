@@ -15,7 +15,8 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
 
-from . import advanced, config, data, features, model, projection, qb, schedule, weather
+from . import (advanced, config, data, features, fetch, model, projection, qb,
+               schedule, weather)
 
 # The model trains on every season <= TRAIN_THROUGH; the season(s) after it are
 # the pure hold-out shown to users. Bump each year (2025 -> pick 2026, ...).
@@ -44,15 +45,14 @@ def load_raw(cache=None, project_season=None):
     if cache:
         L = lambda n: pd.read_parquet(os.path.join(cache, f"{n}.parquet"))
         return L("pbp"), L("depth"), L("injuries"), L("schedules")
-    import nfl_data_py as nfl
     yrs = list(config.PBP_YEARS)
     syrs = yrs + ([project_season] if project_season and project_season not in yrs else [])
-    sched = nfl.import_schedules(syrs)
+    sched = fetch.schedules(syrs)
     # Depth charts span the old weekly schema and the new daily-snapshot schema;
     # unify them (needs the schedule to date-map the new snapshots to weeks).
-    depth = data.load_depth_charts_unified(syrs, sched)
-    return (nfl.import_pbp_data(yrs, downcast=False, cache=False),
-            depth, nfl.import_injuries(yrs), sched)
+    depth = data.load_depth_charts_unified(syrs, sched,
+                                           optional=[project_season] if project_season else [])
+    return (fetch.pbp(yrs), depth, fetch.injuries(yrs), sched)
 
 
 def build_frame(pbp, depth, inj, sched, project_season=None,
