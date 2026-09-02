@@ -190,6 +190,13 @@ constraint the code is most careful about:
   **first** kickoff, and snapshots taken after the season's final kickoff are
   discarded rather than folded into the last week. Verified against the 2025
   schedule, every week;
+- a week's chart is that team's latest snapshot taken **whole**, not the latest
+  row per player. A chart is a document: a player who is no longer on it has
+  left. Merging rows per player instead makes a departure invisible — the
+  player's last row on the old club is never superseded, because his later rows
+  carry the new one — which across an offseason (where every snapshot collapses
+  onto week 1) left teams listing several traded-away quarterbacks at rank 1
+  next to the real starter;
 - Pro Bowl pedigree for a season is drawn only from **prior** seasons;
 - the replacement-level QB baseline is fit on train-era games only;
 - the projected upcoming season is purely additive — verified by building the

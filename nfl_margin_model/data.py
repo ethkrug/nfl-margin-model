@@ -60,10 +60,26 @@ def _new_depth_to_old(new, schedules):
             g["week"] = wk[idx[keep]]
         parts.append(g)
     new = pd.concat(parts, ignore_index=True)
-    # Total order + stable sort: ``tail(1)`` must pick the latest snapshot on the
-    # row's own merits, never on incidental array layout (see _build_qb_depth).
-    new = new.sort_values(["date", "gsis_id"], kind="mergesort").groupby(
-        ["season", "week", "team", "gsis_id"], as_index=False).tail(1)
+    # A depth chart is a DOCUMENT, not a bag of independent player rows, so take
+    # each team's latest snapshot in the week whole.
+    #
+    # Keeping the latest row per (team, player) instead -- what this did
+    # originally -- makes a departed player immortal on his old team: his final
+    # row there is never superseded, because every later row carries his NEW
+    # club. Within a season that is invisible (players rarely move mid-year);
+    # across the offseason snapshots that all collapse onto week 1 it is
+    # ruinous. The 2026 week-1 Raiders chart came out listing three different
+    # QBs at rank 1 -- Geno Smith and Kenny Pickett, both traded away in March,
+    # alongside the actual starter -- and the projected starter was then decided
+    # by a player_id tie-break among the three.
+    #
+    # Selecting on the snapshot date keeps the leakage guarantee: a snapshot is
+    # mapped to the next week that has not kicked off, so a team's latest
+    # snapshot within a week still predates that week's first kickoff.
+    latest = new.groupby(["season", "week", "team"])["date"].transform("max")
+    # reset_index: the frame below mixes index-aligned Series with positional
+    # ``.values`` arrays, so it must not carry a filtered, gappy index.
+    new = new[new["date"] == latest].reset_index(drop=True)
 
     return pd.DataFrame({
         "season": new["season"].astype(int),
