@@ -18,8 +18,8 @@ Walk-forward holdouts, at the team-game level (`python -m nfl_margin_model.evalu
 | Holdout season | Trained on | n | RMSE | Mean abs. error | Straight-up winners |
 |---|---|---|---|---|---|
 | 2024 | 2010–2023 | 570 | 12.70 | 9.87 pts | 70.0% |
-| 2025 | 2010–2024 | 570 | 12.64 | 9.98 pts | 64.6% |
-| **Pooled** | — | **1,140** | **12.67** | **9.93 pts** | **67.3%** |
+| 2025 | 2010–2024 | 570 | 12.65 | 9.99 pts | 64.4% |
+| **Pooled** | — | **1,140** | **12.68** | **9.93 pts** | **67.2%** |
 
 167 features, 285 games per season, each contributing one row per team.
 
@@ -40,10 +40,10 @@ these are the numbers a fresh clone actually produces:
 
 | | RMSE (2024 / 2025 / pooled) | MAE | Winners |
 |---|---|---|---|
-| With Pro Bowl data | 12.70 / 12.64 / **12.67** | 9.93 | 67.3% |
-| Without (fresh clone) | 12.78 / 12.69 / **12.73** | 9.97 | 67.3% |
+| With Pro Bowl data | 12.70 / 12.65 / **12.68** | 9.93 | 67.2% |
+| Without (fresh clone) | 12.78 / 12.69 / **12.73** | 9.97 | 67.2% |
 
-So a clone lands **0.06 RMSE worse** pooled, and picks **exactly the same
+So a clone lands **0.05 RMSE worse** pooled, and picks **exactly the same
 winners** — the Pro Bowl correction is gated so it can sharpen a margin but never
 flip which team is favoured, which is why that column is identical rather than
 merely close. Everything else in this README reproduces exactly.
@@ -82,8 +82,15 @@ can be followed one at a time. The two now share a depth-chart loader, so they
 see the same features.
 
 The first run downloads ~15 seasons of play-by-play from nflverse and takes a
-few minutes. Both `evaluate` and `generate` accept `--cache <dir>` to read
-previously-saved parquet instead, which makes iteration nearly instant.
+few minutes. Add `--save-cache <dir>` to keep the raw feeds, and every later run
+can take `--cache <dir>` to read them off disk instead — nearly instant, and no
+network at all. Both `evaluate` and `generate` accept the pair; `*.parquet` and
+`.cache/` are already gitignored.
+
+```bash
+python -m nfl_margin_model.frontend.generate --no-logos --save-cache .cache/nflverse
+python -m nfl_margin_model.frontend.generate --no-logos --cache .cache/nflverse
+```
 
 Requires Python 3.11+.
 

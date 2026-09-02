@@ -8,6 +8,7 @@ JSON, HTML); nothing here knows about the web page.
 from __future__ import annotations
 
 import math
+import os
 from datetime import date
 
 import numpy as np
@@ -15,8 +16,8 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
 
-from . import (advanced, config, data, features, fetch, model, projection, qb,
-               schedule, weather)
+from . import (advanced, config, console, data, features, fetch, model,
+               projection, qb, schedule, weather)
 
 # The model trains on every season <= TRAIN_THROUGH; the season(s) after it are
 # the pure hold-out shown to users. Bump each year (2025 -> pick 2026, ...).
@@ -35,16 +36,37 @@ DRIVERS = {  # frame column -> human label (value > 0 favours the home team)
 }
 
 
-def load_raw(cache=None, project_season=None):
+# The raw feeds a --cache directory holds, in the order load_raw returns them.
+CACHE_FEEDS = ("pbp", "depth", "injuries", "schedules")
+
+
+def write_cache(path, frames):
+    """Snapshot the raw feeds to ``path`` for a later ``--cache`` run.
+
+    Downloading them is the slow, flaky part of every build -- ~15 seasons of
+    play-by-play over HTTPS -- so a run that has them in hand may as well leave
+    them on disk. Until this existed, ``--cache`` could only be used by someone
+    who had assembled the directory by hand.
+    """
+    os.makedirs(path, exist_ok=True)
+    for name, df in zip(CACHE_FEEDS, frames):
+        df.to_parquet(os.path.join(path, f"{name}.parquet"), index=False)
+    return path
+
+
+def load_raw(cache=None, project_season=None, save_cache=None):
     """Load pbp/depth/injuries/schedules, from cached parquet or live nflverse.
 
     Schedules/depth extend to the upcoming season; pbp/injuries only to played
     seasons (the upcoming season's pbp/injuries don't exist yet).
+
+    ``save_cache`` writes what was fetched to that directory, ready for a later
+    ``cache=`` run. It is ignored when ``cache`` is set: there is nothing to
+    snapshot, the data already came off disk.
     """
-    import os
     if cache:
         L = lambda n: pd.read_parquet(os.path.join(cache, f"{n}.parquet"))
-        return L("pbp"), L("depth"), L("injuries"), L("schedules")
+        return tuple(L(n) for n in CACHE_FEEDS)
     yrs = list(config.PBP_YEARS)
     syrs = yrs + ([project_season] if project_season and project_season not in yrs else [])
     sched = fetch.schedules(syrs)
@@ -52,7 +74,11 @@ def load_raw(cache=None, project_season=None):
     # unify them (needs the schedule to date-map the new snapshots to weeks).
     depth = data.load_depth_charts_unified(syrs, sched,
                                            optional=[project_season] if project_season else [])
-    return (fetch.pbp(yrs), depth, fetch.injuries(yrs), sched)
+    frames = (fetch.pbp(yrs), depth, fetch.injuries(yrs), sched)
+    if save_cache:
+        console.info(f"cache: wrote {', '.join(CACHE_FEEDS)} parquet to "
+                     f"{write_cache(save_cache, frames)}")
+    return frames
 
 
 def build_frame(pbp, depth, inj, sched, project_season=None,
@@ -102,7 +128,7 @@ def build_frame(pbp, depth, inj, sched, project_season=None,
 
 
 def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
-                  project_season=None):
+                  project_season=None, save_cache=None):
     """Train on completed seasons and return ``(records, meta)``.
 
     ``records`` is a list of per-game prediction dicts (home perspective);
@@ -114,7 +140,8 @@ def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
     except Exception:
         ref_date = date.today()
 
-    pbp, depth, inj, sched = load_raw(cache, project_season=project_season)
+    pbp, depth, inj, sched = load_raw(cache, project_season=project_season,
+                                      save_cache=save_cache)
     tgr, gdf, proj_week = build_frame(pbp, depth, inj, sched,
                                       project_season=project_season,
                                       train_through=train_through, ref_date=ref_date)

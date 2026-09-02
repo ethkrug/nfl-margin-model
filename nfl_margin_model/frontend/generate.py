@@ -12,6 +12,9 @@ Usage
 
     # fast rebuild from cached parquet (dev):
     python -m nfl_margin_model.frontend.generate --cache /path/to/parquet
+
+    # download once, keeping the raw feeds for later --cache runs:
+    python -m nfl_margin_model.frontend.generate --save-cache /path/to/parquet
 """
 from __future__ import annotations
 
@@ -168,10 +171,11 @@ def _team_meta(abbrs, with_logos=True):
 
 
 def build_payload(cache=None, generated="today", train_through=predict.TRAIN_THROUGH,
-                  with_logos=True):
+                  with_logos=True, save_cache=None):
     """Assemble the web payload: backend predictions + team visuals."""
     records, meta = predict.predict_games(cache=cache, generated=generated,
-                                          train_through=train_through)
+                                          train_through=train_through,
+                                          save_cache=save_cache)
     teams = sorted({g["home"] for g in records} | {g["away"] for g in records})
     return dict(meta=meta, teams=_team_meta(teams, with_logos=with_logos),
                 games=records)
@@ -180,6 +184,10 @@ def build_payload(cache=None, generated="today", train_through=predict.TRAIN_THR
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache", default=None, help="dir of cached parquet (dev)")
+    ap.add_argument("--save-cache", default=None, metavar="DIR",
+                    help="write the raw nflverse feeds to DIR after downloading "
+                         "them, so a later --cache DIR run needs no network. "
+                         "Ignored with --cache (the data is already local).")
     ap.add_argument("--generated", default=None, help="date stamp for the footer")
     ap.add_argument("--train-through", type=int, default=predict.TRAIN_THROUGH,
                     help="last season used for training; later seasons are shown")
@@ -202,7 +210,8 @@ def main():
 
     payload = build_payload(cache=args.cache, generated=stamp,
                             train_through=args.train_through,
-                            with_logos=not args.no_logos)
+                            with_logos=not args.no_logos,
+                            save_cache=args.save_cache)
     data_json = json.dumps(payload, separators=(",", ":"))
 
     with open(os.path.join(HERE, "template.html"), encoding="utf-8") as f:

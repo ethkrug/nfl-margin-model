@@ -17,6 +17,9 @@ Usage
 
     # fast, from a directory of cached parquet (pbp/depth/injuries/schedules):
     python -m nfl_margin_model.evaluate --cache /path/to/parquet
+
+    # download once, keeping the raw feeds for later --cache runs:
+    python -m nfl_margin_model.evaluate --save-cache /path/to/parquet
 """
 from __future__ import annotations
 
@@ -36,9 +39,10 @@ def _feature_cols(frame):
             if c not in drop + ["y_margin", "y_win", "drop_for_model", "pred"]]
 
 
-def evaluate(cache=None, train_start=2010, holdouts=(2024, 2025)):
+def evaluate(cache=None, train_start=2010, holdouts=(2024, 2025), save_cache=None):
     """Return a dict of per-holdout and pooled metrics (team-game level)."""
-    pbp, depth, inj, sched = predict.load_raw(cache, project_season=max(holdouts) + 1)
+    pbp, depth, inj, sched = predict.load_raw(cache, project_season=max(holdouts) + 1,
+                                              save_cache=save_cache)
     tgr, _, _ = predict.build_frame(pbp, depth, inj, sched,
                                     project_season=None, train_through=max(holdouts))
     tgr = tgr[tgr["season"] <= max(holdouts)].copy()
@@ -82,11 +86,15 @@ def _metrics(y, p, train_seasons):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache", default=None, help="dir of cached parquet (fast)")
+    ap.add_argument("--save-cache", default=None, metavar="DIR",
+                    help="write the raw nflverse feeds to DIR after downloading "
+                         "them, so a later --cache DIR run needs no network")
     ap.add_argument("--train-start", type=int, default=2010)
     ap.add_argument("--holdouts", type=int, nargs="+", default=[2024, 2025])
     args = ap.parse_args()
 
-    res = evaluate(cache=args.cache, train_start=args.train_start, holdouts=tuple(args.holdouts))
+    res = evaluate(cache=args.cache, train_start=args.train_start,
+                   holdouts=tuple(args.holdouts), save_cache=args.save_cache)
     m = res["_meta"]
     print(f"\nMODEL: {m['n_features']} features | lr={m['learning_rate']} depth={m['max_depth']}\n")
     hdr = f"{'holdout':>22} | {'n':>4} | {'MSE':>7} | {'RMSE':>5} | {'MOE(MAE)':>8} | {'winners':>7}"
