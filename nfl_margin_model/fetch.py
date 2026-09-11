@@ -125,21 +125,36 @@ def by_year(what, fn, years, optional=()):
 # --- the feeds ----------------------------------------------------------
 # Thin wrappers so call sites read like the nfl_data_py ones they replace.
 
-def _pbp_year(year, downcast=False, columns=None):
+def _pbp_year(year, downcast=False, columns=None, allow_empty=False):
     """One season of play-by-play, converting nfl_data_py's silence into an error.
 
     ``import_pbp_data`` catches its own exceptions and returns an empty frame,
     so emptiness -- not an exception -- is the failure signal to retry on.
+
+    ``allow_empty`` returns the empty frame instead, for a season that is allowed
+    to be absent: raising would burn the whole retry ladder on a season that is
+    simply not played yet, and :func:`by_year` skips an empty optional year for
+    us anyway.
     """
     df = nfl.import_pbp_data([year], columns=columns, downcast=downcast, cache=False)
-    if not len(df):
+    if not len(df) and not allow_empty:
         raise FetchError(f"play-by-play {year}: nfl_data_py returned no rows")
     return df
 
 
-def pbp(years, downcast=False, columns=None):
-    """Play-by-play for every season in ``years`` (all of them, or an error)."""
-    return by_year("play-by-play", lambda y: _pbp_year(y, downcast, columns), years)
+def pbp(years, downcast=False, columns=None, optional=()):
+    """Play-by-play for every season in ``years`` (all of them, or an error).
+
+    Seasons in ``optional`` may be missing or empty -- the season now under way
+    has no play-by-play until its first game is final. Every other season must
+    arrive, so a dropped feed still fails the build rather than silently training
+    on a hole in the history.
+    """
+    optional = set(optional)
+    return by_year("play-by-play",
+                   lambda y: _pbp_year(y, downcast, columns,
+                                       allow_empty=y in optional),
+                   years, optional)
 
 
 def injuries(years, optional=()):

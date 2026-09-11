@@ -152,7 +152,24 @@
   inSeason.forEach(g => { weekCounts[g.week] = (weekCounts[g.week] || 0) + 1; });
   const liveWeeks = Object.keys(weekCounts).map(Number).sort((a, b) => a - b);
 
-  const S = { week: META.projected_week || liveWeeks[0] || 1, open: null, filter: 'All', sort: 'Kickoff', query: '' };
+  // Which week to open on. The backend answers this in META.current_week, but
+  // this page re-derives it from the games it is actually holding, because the
+  // two can disagree: the HTML ships with a build-time payload and then refetches
+  // preds.json above, so the games in hand may be newer than the META baked into
+  // the file. Same rule the backend uses -- first week with a game still to
+  // play, else the last week we have -- read off the per-game `pending` flag so
+  // the staleness call stays the backend's (a game retired as never-to-be-played
+  // never ships, so it cannot pin the page to a week that is finished).
+  // `home_score == null` is the fallback for a payload built before `pending`.
+  const isPending = g => (g.pending === undefined ? g.home_score == null : !!g.pending);
+  let openWeek = null;
+  for (const w of liveWeeks) {
+    if (inSeason.some(g => g.week === w && isPending(g))) { openWeek = w; break; }
+  }
+  if (openWeek === null && liveWeeks.length) openWeek = liveWeeks[liveWeeks.length - 1];
+  if (openWeek === null) openWeek = META.current_week || META.projected_week || 1;
+
+  const S = { week: openWeek, open: null, filter: 'All', sort: 'Kickoff', query: '' };
 
   const tone = e => Math.abs(e) >= 3 ? { c: '#4fd1a5', t: 'STRONG' }
     : Math.abs(e) >= 1.5 ? { c: '#f0b429', t: 'LEAN' } : { c: '#445a7e', t: 'ALIGNED' };

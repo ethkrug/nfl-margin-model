@@ -57,8 +57,13 @@ def write_cache(path, frames):
 def load_raw(cache=None, project_season=None, save_cache=None):
     """Load pbp/depth/injuries/schedules, from cached parquet or live nflverse.
 
-    Schedules/depth extend to the upcoming season; pbp/injuries only to played
-    seasons (the upcoming season's pbp/injuries don't exist yet).
+    Every feed covers ``config.PBP_YEARS`` plus the upcoming season, which is
+    marked optional: its files do not exist until it starts. That is what lets a
+    season feed itself as it is played -- once week 1 is final its play-by-play
+    is published, so the next build rolls the feature windows onto it and
+    projects week 2 with week 1 in the history, with no config change. Only
+    ``PBP_YEARS`` (the training history) is mandatory, so a genuinely dropped
+    feed still fails the build.
 
     ``save_cache`` writes what was fetched to that directory, ready for a later
     ``cache=`` run. It is ignored when ``cache`` is set: there is nothing to
@@ -68,13 +73,14 @@ def load_raw(cache=None, project_season=None, save_cache=None):
         L = lambda n: pd.read_parquet(os.path.join(cache, f"{n}.parquet"))
         return tuple(L(n) for n in CACHE_FEEDS)
     yrs = list(config.PBP_YEARS)
-    syrs = yrs + ([project_season] if project_season and project_season not in yrs else [])
+    opt = [project_season] if project_season and project_season not in yrs else []
+    syrs = yrs + opt
     sched = fetch.schedules(syrs)
     # Depth charts span the old weekly schema and the new daily-snapshot schema;
     # unify them (needs the schedule to date-map the new snapshots to weeks).
-    depth = data.load_depth_charts_unified(syrs, sched,
-                                           optional=[project_season] if project_season else [])
-    frames = (fetch.pbp(yrs), depth, fetch.injuries(yrs), sched)
+    depth = data.load_depth_charts_unified(syrs, sched, optional=opt)
+    frames = (fetch.pbp(syrs, optional=opt), depth,
+              fetch.injuries(syrs, optional=opt), sched)
     if save_cache:
         console.info(f"cache: wrote {', '.join(CACHE_FEEDS)} parquet to "
                      f"{write_cache(save_cache, frames)}")
@@ -83,22 +89,41 @@ def load_raw(cache=None, project_season=None, save_cache=None):
 
 def build_frame(pbp, depth, inj, sched, project_season=None,
                 train_through=TRAIN_THROUGH, ref_date=None,
-                prior_weight=config.roll_prior_weight, seed_shrink=1.0):
+                prior_weight=config.roll_prior_weight, seed_shrink=1.0,
+                qb_train_max=None):
     """Assemble the model frame, optionally appending the next unplayed week.
 
     Returns ``(tgr, game_df, projected_week)``. When ``project_season`` is set,
     shell rows for the earliest unplayed week are appended and seeded off prior
     games; their QB and weather are supplied by :mod:`projection`/:mod:`weather`.
+
+    ``qb_train_max`` bounds everything *fitted while building the frame* -- the
+    QB replacement-level baseline and the advanced-metric fill -- and defaults
+    to ``train_through``, correct for a single fit where every season up to
+    ``train_through`` is training data. A caller that splits the returned frame
+    into several walk-forward folds must pass its own bound instead, because
+    ``train_through`` then spans seasons that are held out in the earlier folds.
     """
     if ref_date is None:
         ref_date = date.today()
+    # The last season this frame may learn anything from. Kept in one place so
+    # every quantity fitted below shares it: they all have to be legal for the
+    # earliest fold the caller will cut out of the frame, which is not the same
+    # as the last season present on it.
+    fit_through = train_through if qb_train_max is None else qb_train_max
     ce, cw = data.epa_wpa_columns(pbp)
     gdf = features.build_game_df(features.build_game_totals(pbp, ce, cw))
     tg = features.build_team_games(gdf, features.build_team_game_sums(pbp))
     adv = advanced.build_advanced_metrics(pbp)
     tg = tg.merge(adv, on=["game_id", "team"], how="left")
     ac = [c for c in adv.columns if c not in ("game_id", "team")]
-    tg[ac] = tg[ac].fillna(tg[ac].mean())
+    # Undefined rate metrics (no FG attempts, no red-zone drives) are imputed
+    # from the team's own recent games, falling back to a league mean bounded at
+    # fit_through -- see advanced.fill_missing. This used to be a single global
+    # mean over the whole frame, which was harmless while the projected season
+    # contributed no played rows and became a leak once it did: a game already
+    # played this week shifted the fill value used by the rest of that week.
+    tg = advanced.fill_missing(tg, ac, fit_through)
     precip = advanced.build_precip(pbp)
 
     proj_week = None
@@ -117,10 +142,12 @@ def build_frame(pbp, depth, inj, sched, project_season=None,
     tgr = features.build_rolling_features(tg, adjust_defense=True,
                                           prior_weight=prior_weight, seed_shrink=seed_shrink)
     tgr = features.add_game_context(tgr, gdf, precip)
-    tgr, replacement = qb.add_qb_features(tgr, pbp, depth, inj)
+    tgr, replacement, qb_latest = qb.add_qb_features(
+        tgr, pbp, depth, inj,
+        train_max_season=fit_through)
     if project_season is not None and proj_week is not None:
         tgr = projection.override_projected_qb(
-            tgr, project_season, train_through, replacement, depth=depth)
+            tgr, project_season, train_through, replacement, qb_latest, depth=depth)
     tgr = schedule.add_schedule_features(tgr, sched, depth, inj)
     tgr = features.add_matchup_features(tgr)
     tgr, _ = model.add_targets(tgr, tg, gdf)
@@ -228,14 +255,34 @@ def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
             kickoff=_kickoff(info), venue=venue,
             home_score=hs, away_score=as_,
             actual_margin=(None if hs is None else hs - as_),
+            # Still to be played. Only projected shell rows lack a score, and a
+            # game retired as never-to-be-played (:data:`config.PROJECT_STALE_DAYS`)
+            # never reaches the frame at all, so this carries the backend's
+            # staleness judgement to the page instead of making it re-derive one.
+            pending=hs is None,
             drivers={lbl: (None if pd.isna(h[c]) else round(float(h[c]), 3))
                      for c, lbl in drivers.items()},
         ))
 
     records.sort(key=lambda g: (g["season"], g["week"], g["home"]))
+
+    # The week the page should OPEN on, as opposed to ``projected_week``, which
+    # is the modelling fact "this is the week that got shell rows". They agree
+    # all season; they part at the end of it, when nothing is pending and
+    # ``projected_week`` is None. Defining this here, always populated, is what
+    # lets both front ends select a week with no fallback logic of their own --
+    # the earlier ``or live[0]`` guess opened a finished season on week 1.
+    disp = display_seasons[0]
+    weeks = sorted({g["week"] for g in records if g["season"] == disp})
+    if proj_week is not None and proj_week in weeks:
+        current_week = proj_week          # first week with games left to play
+    else:
+        current_week = weeks[-1] if weeks else None   # season over -> its last week
+
     meta = dict(generated=generated,
                 model="Opp-adjusted EPA · matchup · QB · schedule (XGBoost)",
                 train_through=train_through, display_seasons=display_seasons,
                 project_season=project_season, projected_week=proj_week,
+                current_week=current_week,
                 spread_source=SPREAD_SOURCE, driver_keys=list(drivers.values()))
     return records, meta

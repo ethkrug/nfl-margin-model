@@ -205,10 +205,26 @@ constraint the code is most careful about:
   onto week 1) left teams listing several traded-away quarterbacks at rank 1
   next to the real starter;
 - Pro Bowl pedigree for a season is drawn only from **prior** seasons;
-- the replacement-level QB baseline is fit on train-era games only;
-- the projected upcoming season is purely additive — verified by building the
+- everything *fitted while building the frame* — the replacement-level QB
+  baseline and the advanced-metric fill — is bounded by one `fit_through`: its
+  own `train_through` for a single fit, the earliest holdout minus one for the
+  walk-forward evaluation, which builds one frame spanning every fold;
+- undefined rate metrics (no FG attempt → no FG%, no red-zone trip → no
+  red-zone TD rate; 1,977 cells) are imputed from the **team's own previous 10
+  games**, shifted so a game never informs its own fill, falling back to the
+  bounded league mean only where a team has no prior reading. Missing weather
+  (200 of 4,364 games) likewise comes from that venue's **earlier** games — 199
+  covered by the venue's own history, 1 by the league's prior mean. Both were
+  pooled means over the whole frame, which let a game already played this week
+  shift the values used by the rest of that week;
+- the projected upcoming week is purely additive — verified by building the
   frame both ways and diffing: appending it changes **0 feature cells across all
-  8,694 already-played team-game rows**, and only adds 32 new ones;
+  8,694 already-played team-game rows**, and only adds two rows per pending game
+  (checked with a week half-played, the case where a projected row sits in the
+  same week as a completed one);
+- the pipeline is *future-blind* end to end — verified by deleting every
+  game after a cut point and rebuilding: **0 of 1,478,652 cells** change across
+  203 columns on the 7,284 earlier rows;
 - the QB representing a game is the one named pre-game, never the one who turned
   out to play most (see above), and the two features derived from who actually
   played are excluded from the model;
@@ -309,7 +325,19 @@ on refresh. Full details in
 
 `TRAIN_THROUGH` in `predict.py` controls the training window — the model trains on
 every season through it and displays the season after as pure hold-out. **Bump it
-once a year.**
+once a year**, after that season ends.
+
+Within the season, nothing needs bumping. Each build fetches the live season's
+feeds alongside the training history and projects the earliest week that still
+has games left, so a rebuild picks up whatever has been played since the last
+one: finished games appear with their results and their (genuinely out-of-sample)
+predictions, the rolling windows advance onto them, and the next week is
+projected off them. A week that is only partly played is handled per game — the
+Thursday game shows a final score while the Sunday slate is still predicted.
+
+The live season is fed in as *history*, never as training data: it is on the
+display side of `TRAIN_THROUGH`, so a week-1 result sharpens the week-2 features
+without the model ever fitting on it.
 
 ---
 

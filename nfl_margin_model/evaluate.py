@@ -43,8 +43,15 @@ def evaluate(cache=None, train_start=2010, holdouts=(2024, 2025), save_cache=Non
     """Return a dict of per-holdout and pooled metrics (team-game level)."""
     pbp, depth, inj, sched = predict.load_raw(cache, project_season=max(holdouts) + 1,
                                               save_cache=save_cache)
+    # One frame serves every fold, so anything fitted while building it has to
+    # be legal for the EARLIEST holdout -- hence the bound is the first holdout
+    # minus one, not max(holdouts). It covers every quantity build_frame fits:
+    # the QB replacement baseline and the advanced-metric fill. Later folds get
+    # values stale by a season or two rather than ones that have seen their own
+    # test season.
     tgr, _, _ = predict.build_frame(pbp, depth, inj, sched,
-                                    project_season=None, train_through=max(holdouts))
+                                    project_season=None, train_through=max(holdouts),
+                                    qb_train_max=min(holdouts) - 1)
     tgr = tgr[tgr["season"] <= max(holdouts)].copy()
     feats = _feature_cols(tgr)
 

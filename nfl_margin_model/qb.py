@@ -175,11 +175,62 @@ def _build_role_features(starters, qb_depth, qb1, injuries):
     return s[["game_id", "team", "qb_depth_order", "is_designated_starter", "starter_inactive"]]
 
 
-def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
+def _filled(values, fill):
+    """``values`` as a float array with NaN replaced by ``fill`` (scalar or array)."""
+    a = np.asarray(values, dtype=float)
+    return np.where(np.isnan(a), float(fill), a)
+
+
+def shrink_quality(own_form, long_form, career, prior_starts, window,
+                   replacement_epa):
+    """A QB's rolling form shrunk toward his career mean and replacement level.
+
+    Returns the PRE-offseason-pull quality -- ``qb_quality_base_*``. A debut
+    (``prior_starts`` 0) maps exactly to replacement; an established starter
+    keeps his own form; a long-time backup keeps his genuinely-low form, so
+    there is no graduation cliff.
+
+    Shared with :func:`projection.override_projected_qb`, which has to score a
+    game that has no play-by-play. It re-derived this arithmetic inline before,
+    which is how the two paths came to disagree; there is now one copy.
+
+    Works on scalars or arrays.
+    """
+    K = config.QB_SHRINKAGE_K
+    Kc = config.QB_CAREER_SHRINK          # extra shrinkage toward the career mean
+    starts = _filled(prior_starts, 0.0)
+    own = _filled(own_form, replacement_epa)
+    beta = config.QB_LONG_BLEND           # option 3: long-window blend
+    if beta:
+        own = (1.0 - beta) * own + beta * _filled(long_form, replacement_epa)
+    car = _filled(career, replacement_epa)
+    n_eff = np.minimum(starts, window)
+    quality = (n_eff * own + Kc * car + K * replacement_epa) / (n_eff + Kc + K)
+    # Deviation-triggered pull toward career for established QBs only (off by
+    # default): surgical fix for elite QBs whose recent form has drifted far.
+    if config.QB_DEV_REG_LAMBDA:
+        gap = car - quality
+        trig = ((starts >= config.QB_DEV_MIN_STARTS)
+                & (np.abs(gap) > config.QB_DEV_THRESHOLD))
+        quality = quality + np.where(trig, config.QB_DEV_REG_LAMBDA * gap, 0.0)
+    return quality
+
+
+def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries,
+                    train_max_season=None):
     """Compute starting-QB features and merge them onto ``team_games_roll``.
 
-    Returns ``(team_games_roll, replacement_epa)``.
+    ``train_max_season`` is the last season the caller is allowed to learn from;
+    it bounds the replacement-level baseline (step 5). It must be the last
+    TRAINING season, not the last season on the frame -- see the note there.
+    Defaults to :data:`config.TRAIN_MAX_SEASON`.
+
+    Returns ``(team_games_roll, replacement_epa, qb_latest)``, where
+    ``qb_latest`` is each QB's post-game state after his most recent start --
+    what :func:`projection.override_projected_qb` seeds an unplayed game from.
     """
+    if train_max_season is None:
+        train_max_season = config.TRAIN_MAX_SEASON
     windows = config.QB_WINDOWS
 
     # 1) QB dropback plays -- pass attempts + sacks carry an identifiable passer.
@@ -270,10 +321,17 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
         ignore_index=True,
     )
 
-    # 5) replacement-level form = low percentile of starter EPA (train era only,
-    #    so val/test seasons don't leak into the baseline).
+    # 5) replacement-level form = low percentile of starter EPA, over training
+    #    seasons only so a held-out season cannot leak into the baseline every
+    #    QB's form is shrunk toward (step 6) and every rookie inherits.
+    #
+    #    This is bounded by the caller's last TRAINING season, which is not the
+    #    same as the last season present on the frame: a walk-forward evaluation
+    #    builds one frame spanning every holdout, so it must pass its earliest
+    #    holdout minus one. Production passes its own train_through, which is how
+    #    the most recent completed seasons reach the baseline at all.
     replacement_epa = (
-        starters.loc[starters["season"] <= config.TRAIN_MAX_SEASON, "qb_game_epa"]
+        starters.loc[starters["season"] <= train_max_season, "qb_game_epa"]
         .quantile(config.REPLACEMENT_QUANTILE)
     )
 
@@ -295,6 +353,13 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
     state = (starters[["passer_player_id", "game_date"] + post_cols]
              .dropna(subset=["game_date"])
              .sort_values(["game_date", "passer_player_id"], kind="mergesort"))
+    # Each QB's most recent post-game state. ``state`` is consumed as-of below,
+    # i.e. as PRE-game form; this is its other face -- what a QB's form looked
+    # like AFTER his latest start -- and it is what a game with no play-by-play
+    # has to be seeded from. The projection previously read a pre-game column off
+    # the QB's last row instead, which left the seed one start stale: after week 1
+    # of a new season the opening result was invisible to the QB features.
+    qb_latest = state.groupby("passer_player_id").tail(1).set_index("passer_player_id")
 
     rep = starters[["game_id", "season", "week", "posteam", "game_date",
                     "passer_player_id", "passer_player_name", "qb_dropbacks"]].copy()
@@ -355,41 +420,19 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
     )
     starters = rep
 
-    # 6) shrinkage quality: blend a QB's own rolling form toward replacement by
-    #    how many prior starts back the rolling window. A debut (n_eff = 0) maps
-    #    exactly to replacement; an established starter keeps their own form; a
-    #    long-time backup keeps their genuinely-low form (no graduation cliff).
-    K = config.QB_SHRINKAGE_K
-    Kc = config.QB_CAREER_SHRINK          # extra shrinkage toward the QB's career mean
+    # 6) shrinkage quality (see :func:`shrink_quality`), then the offseason pull.
     # Offseason regression weight per game: strong at a QB's season opener, fading
     # to 0 as they accumulate current-season starts (see config).
-    s = starters["qb_season_start_idx"].to_numpy(dtype=float)
-    r = config.QB_OFFSEASON_REG_STRENGTH * np.maximum(0.0, 1.0 - s / config.QB_OFFSEASON_REG_FADE)
+    r = config.qb_offseason_reg_weight(
+        starters["qb_season_start_idx"].to_numpy(dtype=float))
     career = starters["qb_career_epa"].fillna(replacement_epa).to_numpy()
-    beta = config.QB_LONG_BLEND                         # option 3: long-window blend
-    long_form = starters["qb_roll_epa_long"].fillna(replacement_epa)
     for w in windows:
-        own_form = starters[f"qb_roll_epa_{w}"].fillna(replacement_epa)
-        if beta:
-            own_form = (1.0 - beta) * own_form + beta * long_form
-        n_eff = np.minimum(starters["qb_prior_starts"].to_numpy(dtype=float), w)
-        # Shrink recent form toward the QB's career mean (Kc) and league
-        # replacement (K); Kc=0 recovers the original replacement-only shrinkage.
-        raw_quality = (n_eff * own_form + Kc * career + K * replacement_epa) / (n_eff + Kc + K)
-        raw_quality = raw_quality.to_numpy(dtype=float)
-        # Deviation-triggered pull toward career for established QBs only (off by
-        # default): surgical fix for elite QBs whose recent form has drifted far.
-        if config.QB_DEV_REG_LAMBDA:
-            prior_starts = starters["qb_prior_starts"].to_numpy(dtype=float)
-            gap = career - raw_quality
-            trig = (prior_starts >= config.QB_DEV_MIN_STARTS) & (np.abs(gap) > config.QB_DEV_THRESHOLD)
-            raw_quality = raw_quality + np.where(trig, config.QB_DEV_REG_LAMBDA * gap, 0.0)
-        # Keep the pre-offseason-pull value. ``override_projected_qb`` seeds the
-        # upcoming season from a QB's last row and applies the opener pull itself;
-        # if it read the already-pulled qb_quality_* for a QB whose last start WAS
-        # an opener, the pull would compound (0.75 -> ~0.94 career weight). That is
-        # ~12 of 66 QBs a season, and exactly the ones whose form diverges from
-        # career (week-1 injuries), so the projection reads these base columns.
+        raw_quality = shrink_quality(
+            starters[f"qb_roll_epa_{w}"], starters["qb_roll_epa_long"],
+            starters["qb_career_epa"], starters["qb_prior_starts"],
+            w, replacement_epa)
+        # Keep the pre-offseason-pull value: it is what a QB's next game is
+        # seeded from, so the pull must not be baked in twice.
         starters[f"qb_quality_base_{w}"] = raw_quality
         # Optional offseason pull toward career (r=0 by default).
         starters[f"qb_quality_{w}"] = (1.0 - r) * raw_quality + r * career
@@ -455,11 +498,12 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries):
     )
     console.info(
         f"replacement-level EPA/dropback "
-        f"({int(config.REPLACEMENT_QUANTILE * 100)}th pct, train era): {replacement_epa:.3f}"
+        f"({int(config.REPLACEMENT_QUANTILE * 100)}th pct of starts "
+        f"through {train_max_season}): {replacement_epa:.3f}"
     )
     console.info(
         f"designated QB1 started {designated_rate:.1%} of team-games; "
         f"{forced_backups} injury-forced backup starts "
         f"of {len(team_games_roll)} team-games"
     )
-    return team_games_roll, replacement_epa
+    return team_games_roll, replacement_epa, qb_latest

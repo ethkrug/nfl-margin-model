@@ -176,6 +176,55 @@ def build_advanced_metrics(pbp):
     return out
 
 
+def fill_missing(team_games, cols, fit_through, window=None):
+    """Impute the undefined advanced-metric rates from each team's own recent games.
+
+    Several of these columns are rates whose denominator can be zero: a team-game
+    with no field-goal attempts has no field-goal percentage (1,087 of ~8,700
+    team-games), one with no red-zone drives has no red-zone TD rate. The value is
+    *undefined*, not missing, and it cannot simply be left NaN -- the raw column is
+    dropped after rolling, so this row's only job is to be one of the games in that
+    team's later rolling windows. Nor can it be 0: kicking 0% is not what happened.
+
+    The estimate is the team's own mean over its previous ``window`` games, which
+    beats a league average for anything carrying team identity -- kicker quality,
+    red-zone offence. Only *prior* games count (``shift(1)``), so a game never
+    informs its own fill, and the window deliberately crosses season boundaries:
+    a kicker resembles himself last December far more than he resembles the league.
+
+    Falls back to the league mean over seasons through ``fit_through`` where a team
+    has no prior observation at all -- its first games in the frame, or a run of
+    ``window`` games where the rate stayed undefined -- and to the whole frame only
+    if that slice is empty. The bound matters because that fallback is the one
+    remaining path by which one team-game can influence another's features.
+
+    Caveat worth knowing: ``fum_recovery_rate`` is explicitly recovery *luck*
+    (see :func:`_fumble_recovery_rate`), so a team-specific prior propagates noise
+    where a league mean would not. It is imputed the same way as the rest here;
+    splitting the policy per column is a judgement call left open.
+    """
+    if window is None:
+        window = config.ADV_FILL_WINDOW
+    tg = team_games.reset_index(drop=True)
+    order = tg.sort_values(["team", "season", "week"], kind="mergesort").index
+    key = tg.loc[order, "team"]
+    # shift(1) first so a game is excluded from its own window, then roll. A NaN
+    # inside the window is skipped rather than poisoning it (min_periods counts
+    # observed values), so a team with any prior reading in the last `window`
+    # games gets its own number.
+    prior = (tg.loc[order, cols]
+             .groupby(key, sort=False).shift(1)
+             .groupby(key, sort=False)
+             .rolling(window, min_periods=1).mean()
+             .reset_index(level=0, drop=True)
+             .sort_index())
+    league = tg.loc[tg["season"] <= fit_through, cols].mean()
+    league = league.fillna(tg[cols].mean())
+    out = team_games.copy()
+    out[cols] = tg[cols].fillna(prior).fillna(league).to_numpy()
+    return out
+
+
 def build_precip(pbp):
     """Game-level precipitation flag parsed from the pbp ``weather`` text."""
     if "weather" not in pbp.columns:

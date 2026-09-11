@@ -7,6 +7,8 @@ the defaults reproduce the notebook exactly.
 
 from pathlib import Path
 
+import numpy as np
+
 # --- Pro Bowl pedigree ---------------------------------------------------
 # Manually-supplied Pro-Football-Reference Pro Bowl exports, one CSV per season
 # (``pro-bowlers<SEASON>.csv``; filename year = NFL season). 2020 is absent from
@@ -20,6 +22,11 @@ PB_ELITE_WINDOW = 8
 
 # --- Data windows --------------------------------------------------------
 # Weekly player data and play-by-play data are pulled over these seasons.
+# NOTE: this is the TRAINING HISTORY window, not everything that gets fetched.
+# ``predict.load_raw`` adds the season being projected on top of it (marked
+# optional, since its feeds appear only once it starts), so a live season feeds
+# itself as it is played without anyone editing this range. Only the seasons
+# listed here are mandatory -- a missing one fails the build.
 WEEKLY_YEARS = range(2020, 2025)
 # Training history starts 2010: walk-forward tests showed extending back to ~2010
 # lowered holdout RMSE on both 2024 and 2025 (plateaus there; 2005-2009 add no
@@ -58,7 +65,13 @@ def roll_prior_weight(week):
 
 # --- Starting-QB features ------------------------------------------------
 QB_WINDOWS = (5, 10)            # rolling windows over a QB's own starts
-TRAIN_MAX_SEASON = 2023         # replacement baseline uses train-era games only
+# Fallback bound for the QB replacement baseline, used by the narrated
+# run_pipeline.py (which trains on the fixed TRAIN_MAX/VAL/TEST split below).
+# The predict path does NOT read this -- it bounds the baseline by its own
+# train_through, so the latest completed seasons reach it; evaluate.py bounds it
+# by its earliest holdout. Leaving it here as the live value froze the baseline
+# at 2023 long after production had started training through 2025.
+TRAIN_MAX_SEASON = 2023
 REPLACEMENT_QUANTILE = 0.15     # replacement-level = this pct of train-era starter EPA
 QB_SHRINKAGE_K = 3.0            # shrinkage strength (in games) toward replacement level
 # Career-anchored shrinkage: also pull a QB's rolling form toward their OWN
@@ -109,11 +122,47 @@ QB_LONG_BLEND = 0.0
 QB_OFFSEASON_REG_STRENGTH = 0.75
 QB_OFFSEASON_REG_FADE = 1.0
 
+
+def qb_offseason_reg_weight(season_starts):
+    """Offseason pull weight for a QB with ``season_starts`` starts already made
+    in the current season: full strength at his opener, 0 once FADE starts are in
+    the books. Accepts a scalar or an array.
+
+    Shared by the played path (:mod:`qb`) and the projected one
+    (:mod:`projection`) so a projected game gets the same treatment a played one
+    would. The projection used to hard-code the opener value, which was right
+    only in week 1 -- from week 2 on it re-applied a 75% career pull to a QB who
+    already had current-season form.
+    """
+    starts = np.asarray(season_starts, dtype=float)
+    if not QB_OFFSEASON_REG_FADE:
+        return np.zeros_like(starts)
+    return QB_OFFSEASON_REG_STRENGTH * np.maximum(
+        0.0, 1.0 - starts / QB_OFFSEASON_REG_FADE)
+
 # A designated starter (depth-chart QB1) is considered unavailable for a game
 # when their injury report status is one of these (forces a backup to start).
 QB_INACTIVE_STATUSES = ("Out", "Doubtful")
 # Depth rank assigned to a passer we can't locate on that week's QB depth chart.
 QB_DEPTH_SENTINEL = 3
+
+# --- Projected (not-yet-played) games -----------------------------------
+# A scheduled game with no score is normally still upcoming, but a cancelled
+# game (e.g. 2022 BUF-CIN week 17) never gets one, and left alone it would pin
+# the projected week there for the rest of the season. So a scoreless game whose
+# kickoff is more than this many days past is treated as never-to-be-played.
+# The grace period is what separates that from ordinary feed lag: scores post
+# within hours, so 3 days clears even a Monday nighter while still retiring a
+# cancellation within the same week.
+PROJECT_STALE_DAYS = 3
+
+# --- Advanced-metric imputation -----------------------------------------
+# Rate metrics whose denominator can be zero (no field-goal attempts -> no FG%,
+# no red-zone drives -> no red-zone TD rate) are undefined for that team-game.
+# They are imputed from the team's own previous games over this window rather
+# than from a league average, because the traits behind them -- kicker quality,
+# red-zone offence -- belong to the team, not the league.
+ADV_FILL_WINDOW = 10
 
 # --- Train / validation / test split (by season) ------------------------
 TRAIN_MAX = 2023                # train: season <= TRAIN_MAX

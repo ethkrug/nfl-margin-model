@@ -53,6 +53,47 @@ def build_team_game_sums(play_by_play_df):
 # --------------------------------------------------------------------------
 # 2. game_df: target + cleaned context
 # --------------------------------------------------------------------------
+def _fill_weather_from_history(game_df, cols=("temp", "wind")):
+    """Impute missing ``temp``/``wind`` from the venue's own history BEFORE the game.
+
+    About 4.6% of games arrive with no weather reading. The previous fill used the
+    home team's mean over *every* game at that venue, future included, which was
+    the one path by which a later game could move an earlier game's features --
+    small (~1F) and exogenous, but future information all the same.
+
+    The estimate is now an expanding mean over that home team's earlier games only,
+    in chronological order. ``expanding().mean()`` skips NaN, so it averages the
+    OBSERVED readings before this game and an imputed value never feeds a later
+    imputation. Where a venue has no prior reading -- its first appearance in the
+    frame -- it falls back to the league's expanding prior mean, which is likewise
+    prior-only and so needs no season bound. Nothing fills the gap beyond that: a
+    game with no prior reading anywhere in the frame has no past to estimate from,
+    and every candidate value would either be arbitrary or borrowed from the
+    future, so the NaN is left for XGBoost's own missing-value branch. On the
+    current feeds that case does not arise -- of 200 missing readings, 199 are
+    covered by the venue's own history and the last by the league's.
+
+    Grouped by ``home_team`` rather than by stadium: nflverse's ``stadium_id`` is
+    not a stable venue key (teams that never moved carry five or six of them), so
+    grouping on it would shatter the history it is meant to pool. The cost is a
+    relocation -- Oakland to Las Vegas, for instance -- pooling the old venue with
+    the new one; in practice those moves were to domes, and dome games are pinned
+    to 70F/0mph above before this ever runs.
+    """
+    df = game_df.reset_index(drop=True)
+    order = df.sort_values(["season", "week", "game_id"], kind="mergesort").index
+    ordered = df.loc[order]
+    home = ordered["home_team"]
+    out = game_df.copy()
+    for c in cols:
+        s = ordered[c]
+        venue = s.groupby(home, sort=False).transform(
+            lambda x: x.expanding().mean().shift(1))
+        league = s.expanding().mean().shift(1)
+        out[c] = s.fillna(venue).fillna(league).sort_index().to_numpy()
+    return out
+
+
 def build_game_df(game_totals):
     """Add the score-margin target, reorder columns, and impute weather."""
     game_df = game_totals.copy()
@@ -70,16 +111,10 @@ def build_game_df(game_totals):
     # Indoor games get fixed, neutral weather.
     game_df.loc[game_df["roof"].isin(["dome", "closed"]), ["temp", "wind"]] = [70.0, 0.0]
 
-    # Coerce to numeric, then impute remaining gaps with the home stadium's mean.
+    # Coerce to numeric, then impute remaining gaps from the venue's own past.
     game_df["temp"] = pd.to_numeric(game_df["temp"], errors="coerce")
     game_df["wind"] = pd.to_numeric(game_df["wind"], errors="coerce")
-    game_df["temp"] = game_df["temp"].fillna(
-        game_df.groupby("home_team")["temp"].transform("mean")
-    )
-    game_df["wind"] = game_df["wind"].fillna(
-        game_df.groupby("home_team")["wind"].transform("mean")
-    )
-    return game_df
+    return _fill_weather_from_history(game_df)
 
 
 # --------------------------------------------------------------------------

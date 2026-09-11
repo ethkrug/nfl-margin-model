@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from . import advanced, console, data, features, model, qb, schedule
+from . import advanced, config, console, data, features, model, qb, schedule
 
 
 @dataclass
@@ -53,10 +53,13 @@ def run(show_previews: bool = True) -> Result:
     console.step("Computing advanced pbp metrics (red zone, explosive, pressure, ...)")
     adv = advanced.build_advanced_metrics(play_by_play_df)
     team_games = team_games.merge(adv, on=["game_id", "team"], how="left")
-    # Neutral per-game fill for situations that didn't occur (e.g. no FG attempt,
-    # no red-zone trip); these are pre-roll raw stats and get shifted next.
+    # Fill situations that didn't occur (no FG attempt, no red-zone trip) from the
+    # team's own recent games; these are pre-roll raw stats and get shifted next.
+    # Bounded at TRAIN_MAX because this path splits train/val/test by season, and
+    # a fill mean pooled over the whole frame would carry VAL_SEASON and
+    # TEST_SEASON into the values used on training rows.
     adv_cols = [c for c in adv.columns if c not in ("game_id", "team")]
-    team_games[adv_cols] = team_games[adv_cols].fillna(team_games[adv_cols].mean())
+    team_games = advanced.fill_missing(team_games, adv_cols, config.TRAIN_MAX)
     console.step("Opponent-adjusting EPA (offense + defense) and rolling")
     team_games_roll = features.build_rolling_features(team_games)
     console.step("Attaching game context + weather interactions")
@@ -70,7 +73,7 @@ def run(show_previews: bool = True) -> Result:
     schedules = data.load_schedules()
     depth_charts = data.load_depth_charts(schedules)
     injuries = data.load_injuries()
-    team_games_roll, replacement_epa = qb.add_qb_features(
+    team_games_roll, replacement_epa, _ = qb.add_qb_features(
         team_games_roll, play_by_play_df, depth_charts, injuries
     )
 

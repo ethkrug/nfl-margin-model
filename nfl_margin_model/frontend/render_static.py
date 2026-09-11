@@ -500,9 +500,16 @@ def build(payload, fonts_css=""):
         counts[g["week"]] = counts.get(g["week"], 0) + 1
     live = sorted(counts)
     max_week = max([18] + live) if live else 18
-    start = meta.get("projected_week")
+    # Which week to open on. The backend decides this (``current_week``): the
+    # first week with games still to play, or the season's last week once it is
+    # over. This page has no JavaScript, so it cannot re-derive anything at open
+    # time -- it renders whatever the payload says. ``projected_week`` is the
+    # fallback for a payload built before ``current_week`` existed, and the last
+    # live week is the last resort; the old ``live[0]`` guess opened a finished
+    # season on week 1.
+    start = meta.get("current_week") or meta.get("projected_week")
     if not start or not counts.get(start):
-        start = live[0] if live else 1
+        start = live[-1] if live else 1
 
     radios = ""
     for w in range(1, max_week + 1):
