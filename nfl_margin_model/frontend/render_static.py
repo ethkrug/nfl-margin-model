@@ -540,7 +540,11 @@ def build(payload, fonts_css=""):
     heads, groups = "", ""
     empty_weeks = {"f-strong": [], "f-dis": []}
     for w in live:
-        wk = [prep(g) for g in in_season if g["week"] == w]
+        # Kickoff order is the page's default and CSS cannot reorder by time,
+        # so it is baked in here (--ok is this list's position).
+        wk = [prep(g) for g in sorted(
+            (x for x in in_season if x["week"] == w),
+            key=lambda x: (x.get("kickoff_at") or "9999", x["home"]))]
         if not any(r["strong"] for r in wk):
             empty_weeks["f-strong"].append(w)
         if not any(r["disagrees"] for r in wk):

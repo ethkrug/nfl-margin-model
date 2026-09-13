@@ -236,6 +236,8 @@
     if (q) rows = rows.filter(r => (r.g.away + r.g.home + name(r.g.away) + name(r.g.home)).toLowerCase().includes(q));
     if (S.filter === 'Strong edge') rows = rows.filter(r => Math.abs(r.edge) >= 3);
     if (S.filter === 'Disagrees on winner') rows = rows.filter(r => r.hasMkt && r.mSp.fav !== r.kSp.fav);
+    if (S.sort === 'Kickoff') rows = rows.slice().sort((x, y) =>
+      String(x.g.kickoff_at || '9999').localeCompare(String(y.g.kickoff_at || '9999')));
     if (S.sort === 'Edge') rows = rows.slice().sort((x, y) => Math.abs(y.edge) - Math.abs(x.edge));
     if (S.sort === 'Margin') rows = rows.slice().sort((x, y) => Math.abs(y.hm) - Math.abs(x.hm));
     return rows;

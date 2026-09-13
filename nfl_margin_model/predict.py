@@ -195,13 +195,28 @@ def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
     spread_map = (sched.dropna(subset=["spread_line"])
                   .set_index("game_id")["spread_line"].to_dict())
     info_map = sched.set_index("game_id")[
-        [c for c in ["weekday", "gametime", "stadium", "location"]
+        [c for c in ["weekday", "gametime", "gameday", "stadium", "location"]
          if c in sched.columns]
     ].to_dict("index")
 
     def _margin_to_prob(margin):
         """Map a point margin to a home win probability (shared scale)."""
         return 1.0 / (1.0 + math.exp(-margin / (sd * 0.55)))
+
+    def _kickoff_at(info):
+        """Sortable kickoff, 'YYYY-MM-DDTHH:MM' in the schedule's own timezone.
+
+        ``kickoff`` below is a display string ('Sun 1:00 PM') and does not sort,
+        so the front ends had nothing to order a week by and fell back to the
+        order records arrived in -- which was alphabetical by home team, putting
+        a 1pm Sunday game (NYJ at TEN) last on the board. ISO order is
+        chronological as plain text, so both front ends can sort on it directly.
+        """
+        day = str(info.get("gameday") or "")[:10]
+        if len(day) != 10:
+            return None
+        hhmm = str(info.get("gametime") or "")[:5]
+        return f"{day}T{hhmm if len(hhmm) == 5 else '00:00'}"
 
     def _kickoff(info):
         """'Sunday' + '13:00' -> 'Sun 1:00 PM'."""
@@ -252,7 +267,7 @@ def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
             market_spread=mkt,
             market_win_prob_home=mkt_wp,
             spread_edge=(None if mkt is None else round(pred - mkt, 1)),
-            kickoff=_kickoff(info), venue=venue,
+            kickoff=_kickoff(info), kickoff_at=_kickoff_at(info), venue=venue,
             home_score=hs, away_score=as_,
             actual_margin=(None if hs is None else hs - as_),
             # Still to be played. Only projected shell rows lack a score, and a
@@ -264,7 +279,11 @@ def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
                      for c, lbl in drivers.items()},
         ))
 
-    records.sort(key=lambda g: (g["season"], g["week"], g["home"]))
+    # Chronological within a week. The static build has no JavaScript and takes
+    # its default card order straight from this list, so the ordering has to be
+    # right here rather than in either page. Undated games sort last.
+    records.sort(key=lambda g: (g["season"], g["week"],
+                                g["kickoff_at"] or "9999", g["home"]))
 
     # The week the page should OPEN on, as opposed to ``projected_week``, which
     # is the modelling fact "this is the week that got shell rows". They agree
