@@ -147,7 +147,8 @@ def build_frame(pbp, depth, inj, sched, project_season=None,
         train_max_season=fit_through)
     if project_season is not None and proj_week is not None:
         tgr = projection.override_projected_qb(
-            tgr, project_season, train_through, replacement, qb_latest, depth=depth)
+            tgr, project_season, train_through, replacement, qb_latest,
+            depth=depth, injuries=inj)
     tgr = schedule.add_schedule_features(tgr, sched, depth, inj)
     tgr = features.add_matchup_features(tgr)
     tgr, _ = model.add_targets(tgr, tg, gdf)

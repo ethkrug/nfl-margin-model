@@ -84,6 +84,63 @@ def projected_frames(sched, project_season, gdf, team_games, clim, ref_date):
     return ctx, shell, target
 
 
+def inactive_qbs(injuries, project_season, week):
+    """Player ids on that week's injury report with a status that rules them out.
+
+    Mirrors :func:`qb._build_role_features`: a player can appear twice in a week
+    with conflicting statuses, so the most severe wins -- if any report rules him
+    out, he is out.
+    """
+    if injuries is None or not len(injuries):
+        return set()
+    inj = injuries[["season", "week", "gsis_id", "report_status"]].copy()
+    for c in ("season", "week"):
+        inj[c] = pd.to_numeric(inj[c], errors="coerce")
+    inj = inj.dropna(subset=["season", "week", "gsis_id"])
+    inj = inj[(inj["season"].astype(int) == int(project_season))
+              & (inj["week"].astype(int) == int(week))]
+    return set(inj.loc[inj["report_status"].isin(config.QB_INACTIVE_STATUSES),
+                       "gsis_id"])
+
+
+def available_starter(depth, injuries, project_season, week):
+    """Per team: ``(starter_id, depth_order, starter_inactive)`` for a projected game.
+
+    The depth chart says who a team INTENDS to start; the injury report says
+    whether he can. Reading only the first -- what this did before -- priced
+    Atlanta's 2026 week 1 at Tua Tagovailoa's form while both he and the QB2 sat
+    on that week's report as Out and the QB3 actually started. The played path has
+    always read both (see :func:`qb._build_role_features`); this brings the
+    projected path level with it.
+
+    Walks down the published chart to the first quarterback not ruled out.
+    ``starter_inactive`` reports on the *designated* QB1, not on whoever we land
+    on, because that is what the feature means on a played row: the team's listed
+    starter is unavailable and a backup has the job. If every listed QB is out the
+    chart cannot answer, so QB1 is kept and the flag still raised.
+    """
+    nd = _normalize_depth(depth)
+    nd = nd[(nd["season"] == project_season) & (nd["position"] == "QB")].dropna(
+        subset=["week", "team", "player_id", "depth_rank"])
+    if week is not None:
+        nd = nd[nd["week"] <= week]
+    if nd.empty:
+        return {}
+    # The chart for the latest week at or before the one being projected.
+    nd = nd[nd["week"] == nd.groupby("team")["week"].transform("max")]
+    out = inactive_qbs(injuries, project_season, week)
+
+    chart = {}
+    for team, g in nd.groupby("team"):
+        # depth_rank ties are common, so player_id makes the order total.
+        g = g.sort_values(["depth_rank", "player_id"], kind="mergesort")
+        ids = list(g["player_id"])
+        qb1 = ids[0]
+        pick = next((p for p in ids if p not in out), qb1)
+        chart[team] = (pick, ids.index(pick) + 1, int(qb1 in out))
+    return chart
+
+
 def depth_qb1(depth, project_season, max_week=None):
     """Projected-season QB1 per team from nflverse depth charts.
 
@@ -111,7 +168,7 @@ def depth_qb1(depth, project_season, max_week=None):
 
 
 def override_projected_qb(tgr, project_season, train_through, replacement,
-                          qb_latest, depth=None):
+                          qb_latest, depth=None, injuries=None):
     """Assign each *unplayed* projected game its starting QB and that QB's quality.
 
     Starter, in priority order:
@@ -152,12 +209,15 @@ def override_projected_qb(tgr, project_season, train_through, replacement,
     # starter" is reproducible rather than whichever row landed last.
     primary = (counts.sort_values(["n", "qb_player_id"], kind="mergesort")
                .groupby("team").tail(1).set_index("team")["qb_player_id"].to_dict())
-    dq1 = (depth_qb1(depth, project_season, max_week=target_week)
-           if depth is not None else {})
+    chart = (available_starter(depth, injuries, project_season, target_week)
+             if depth is not None else {})
 
     for i in shell:
         t = tgr.at[i, "team"]
-        pid = dq1.get(t) or primary.get(t)
+        named = chart.get(t)
+        # Falling back to last season's primary starter leaves the role features
+        # neutral: with no chart there is nothing to say he is not the starter.
+        pid, order, inactive = named if named else (primary.get(t), 1, 0)
         if pid is None:
             continue
         if pid in qb_latest.index:
@@ -184,9 +244,9 @@ def override_projected_qb(tgr, project_season, train_through, replacement,
             for w in config.QB_WINDOWS:
                 tgr.at[i, f"qb_quality_{w}"] = replacement
         tgr.at[i, "qb_prior_starts"] = starts
-        tgr.at[i, "qb_depth_order"] = 1
-        tgr.at[i, "is_designated_starter"] = 1
-        tgr.at[i, "starter_inactive"] = 0
+        tgr.at[i, "qb_depth_order"] = order
+        tgr.at[i, "is_designated_starter"] = int(order == 1)
+        tgr.at[i, "starter_inactive"] = inactive
         if "qb_player_id" in tgr.columns:
             tgr.at[i, "qb_player_id"] = pid
     return tgr
