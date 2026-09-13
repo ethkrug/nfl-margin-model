@@ -26,42 +26,58 @@ def _formation_from_posgrp(pos_grp):
 def _new_depth_to_old(new, schedules):
     """Convert new daily-snapshot depth charts to the old (season, week, ...) schema.
 
-    Each snapshot's date is mapped to the NFL week it precedes (via the schedule's
-    kickoffs), so a game's row uses the last snapshot BEFORE that week's kickoff
-    (leakage-safe). One row per (season, week, team, player): the latest snapshot
-    within the week.
+    Each snapshot is mapped to the next game **that team** still has to play, so a
+    game's chart is the last snapshot published before *its own* kickoff.
+
+    Mapping to the week's FIRST kickoff instead -- what this did originally --
+    closed the chart for the entire league the moment the week's opener started.
+    Teams in the same week kick off as much as five days apart, so a chart
+    published Saturday naming a new starter for a Sunday game was labelled the
+    following week and never reached the game it described. Atlanta in 2026 week 1
+    is the case in point: the opener was Wednesday, Atlanta played the Sunday, and
+    every chart in between was invisible to it. The cutoff belongs to the game.
+
+    Both sides are compared in US/Eastern -- the schedule's ``gametime`` is given
+    in it and the snapshot's ``dt`` is UTC -- so a chart published the morning of a
+    1pm kickoff still counts and one published just after it does not. A game whose
+    kickoff time is missing falls back to midnight, which closes its chart earlier
+    rather than later.
+
+    One row per (season, week, team): that team's latest qualifying snapshot.
     """
     new = new.copy()
-    new["date"] = pd.to_datetime(new["dt"], errors="coerce").dt.tz_localize(None)
+    new["date"] = (pd.to_datetime(new["dt"], errors="coerce", utc=True)
+                   .dt.tz_convert("America/New_York").dt.tz_localize(None))
     new = new.dropna(subset=["date"])
-    m = new["date"].dt.month
-    new["season"] = np.where(m >= 3, new["date"].dt.year, new["date"].dt.year - 1)
+    tmap = team_code_map(schedules)
+    new["team"] = new["team"].replace(tmap)
 
     sch = schedules.copy()
-    sch["gd"] = pd.to_datetime(sch["gameday"], errors="coerce")
-    parts = []
-    for season, g in new.groupby("season"):
-        kk = sch[sch["season"] == season].groupby("week")["gd"].min().dropna().sort_index()
-        g = g.copy()
-        if len(kk) == 0:
-            g["week"] = 1
-        else:
-            wk = kk.index.values.astype(int)
-            kd = kk.values.astype("datetime64[ns]")
-            idx = np.searchsorted(kd, g["date"].values.astype("datetime64[ns]"),
-                                  side="left")
-            # A snapshot maps to the next week that has not kicked off yet.
-            # Anything past the final week's kickoff is post-season/offseason and
-            # therefore reflects roster state AFTER that season's last games; it
-            # is dropped rather than clipped back into the last week, which would
-            # hand the final week a chart built from its own future.
-            keep = idx < len(wk)
-            g = g[keep].copy()
-            g["week"] = wk[idx[keep]]
-        parts.append(g)
-    new = pd.concat(parts, ignore_index=True)
+    gd = pd.to_datetime(sch["gameday"], errors="coerce")
+    tod = pd.to_timedelta(
+        sch["gametime"].astype(str).str.slice(0, 5) + ":00", errors="coerce")
+    sch["kick"] = gd + tod.fillna(pd.Timedelta(0))
+    games = pd.concat(
+        [sch[["season", "week", "kick"]].assign(team=sch[side].replace(tmap))
+         for side in ("home_team", "away_team")],
+        ignore_index=True,
+    ).dropna(subset=["kick", "team"])
+
+    # Each snapshot attaches to the next game its team has left to play.
+    # ``allow_exact_matches=False`` keeps the boundary strict: a snapshot stamped
+    # exactly at kickoff does not describe the team that took the field. A
+    # snapshot with no game after it -- the tail of a season, before the next
+    # schedule is published -- describes roster state that no upcoming game can
+    # use, and is dropped rather than clipped back onto a game already played.
+    new = pd.merge_asof(
+        new.sort_values("date", kind="mergesort"),
+        games.sort_values("kick", kind="mergesort"),
+        left_on="date", right_on="kick", by="team",
+        direction="forward", allow_exact_matches=False,
+    ).dropna(subset=["week"])
+
     # A depth chart is a DOCUMENT, not a bag of independent player rows, so take
-    # each team's latest snapshot in the week whole.
+    # each team's latest qualifying snapshot whole.
     #
     # Keeping the latest row per (team, player) instead -- what this did
     # originally -- makes a departed player immortal on his old team: his final
@@ -72,10 +88,6 @@ def _new_depth_to_old(new, schedules):
     # QBs at rank 1 -- Geno Smith and Kenny Pickett, both traded away in March,
     # alongside the actual starter -- and the projected starter was then decided
     # by a player_id tie-break among the three.
-    #
-    # Selecting on the snapshot date keeps the leakage guarantee: a snapshot is
-    # mapped to the next week that has not kicked off, so a team's latest
-    # snapshot within a week still predates that week's first kickoff.
     latest = new.groupby(["season", "week", "team"])["date"].transform("max")
     # reset_index: the frame below mixes index-aligned Series with positional
     # ``.values`` arrays, so it must not carry a filtered, gappy index.
