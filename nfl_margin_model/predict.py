@@ -195,6 +195,16 @@ def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
     sd = float((tr["y_margin"] ** 2).mean() ** 0.5)
     spread_map = (sched.dropna(subset=["spread_line"])
                   .set_index("game_id")["spread_line"].to_dict())
+    # Final scores, for DISPLAY only -- never a model input, and nothing below
+    # feeds them back into the frame. The schedule is preferred over the
+    # play-by-play the frame already carries: the two agree on every game that
+    # has both (2010-2026, 4,380 games, 0 disagreements), but the schedule is
+    # updated within minutes of the whistle while play-by-play lands on the
+    # nightly release, so it is the only one that can score a game whose
+    # play-by-play rows do not exist yet -- see projection.projected_frames.
+    score_map = (sched.dropna(subset=["home_score", "away_score"])
+                 .set_index("game_id")[["home_score", "away_score"]]
+                 .to_dict("index"))
     info_map = sched.set_index("game_id")[
         [c for c in ["weekday", "gametime", "gameday", "stadium", "location"]
          if c in sched.columns]
@@ -246,8 +256,12 @@ def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
         base = float((h["pred_raw"] - a["pred_raw"]) / 2.0)
         if config.PB_CORRECTION_NO_FLIP and base != 0.0 and (pred > 0) != (base > 0):
             pred = base
-        hs = None if pd.isna(h["points_for"]) else int(h["points_for"])
-        as_ = None if pd.isna(h["points_against"]) else int(h["points_against"])
+        sc = score_map.get(gid)
+        if sc is not None:                    # schedule first (see score_map)
+            hs, as_ = int(sc["home_score"]), int(sc["away_score"])
+        else:                                 # fall back to the played row
+            hs = None if pd.isna(h["points_for"]) else int(h["points_for"])
+            as_ = None if pd.isna(h["points_against"]) else int(h["points_against"])
         wp = _margin_to_prob(pred)
         mkt = spread_map.get(gid)
         mkt = None if mkt is None or pd.isna(mkt) else round(float(mkt), 1)
@@ -271,10 +285,12 @@ def predict_games(cache=None, generated="today", train_through=TRAIN_THROUGH,
             kickoff=_kickoff(info), kickoff_at=_kickoff_at(info), venue=venue,
             home_score=hs, away_score=as_,
             actual_margin=(None if hs is None else hs - as_),
-            # Still to be played. Only projected shell rows lack a score, and a
-            # game retired as never-to-be-played (:data:`config.PROJECT_STALE_DAYS`)
-            # never reaches the frame at all, so this carries the backend's
-            # staleness judgement to the page instead of making it re-derive one.
+            # Still to be played. A shell row whose game has already finished
+            # carries a score from the schedule above, so it correctly reads as
+            # final rather than upcoming; a game retired as never-to-be-played
+            # (:data:`config.PROJECT_STALE_DAYS`) never reaches the frame at all.
+            # Either way this carries the backend's judgement to the page instead
+            # of making it re-derive one.
             pending=hs is None,
             drivers={lbl: (None if pd.isna(h[c]) else round(float(h[c]), 3))
                      for c, lbl in drivers.items()},

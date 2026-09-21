@@ -41,12 +41,24 @@ def projected_frames(sched, project_season, gdf, team_games, clim, ref_date):
     build entirely -- no shell rows, so no features, so no predictions -- and
     jumped the app to next week while 15 games were still upcoming.
 
-    A game is pending when it has no score and is not stale -- see
-    :data:`config.PROJECT_STALE_DAYS`. Staleness needs a grace period rather than
-    a plain "kickoff is in the past" test, because a game that kicked off last
-    night has no score for hours afterwards; without the grace period the build
-    would drop a just-played game instead of predicting it, which is the same
-    disappearing-game bug in a different place. A game with an unparseable date
+    A game needs a shell row when it has no PLAY-BY-PLAY yet and is not stale --
+    see :data:`config.PROJECT_STALE_DAYS`. The test is "no play-by-play" rather
+    than "no score" because the two feeds land at very different speeds: the
+    schedule carries a final score within minutes of the whistle, while
+    play-by-play arrives on the nightly release. Keying on the score dropped a
+    finished game out of the build for those hours -- it was neither pending (the
+    schedule had scored it) nor played (no play-by-play to build a row from), so
+    it vanished from the board entirely, prediction and all. Keying on
+    play-by-play keeps it, carrying the pre-game features and prediction it
+    already had; :func:`predict.predict_games` then reads its final score off the
+    schedule for display.
+
+    Staleness needs a grace period rather than a plain "kickoff is in the past"
+    test, because a game that kicked off last night has no rows for hours
+    afterwards; without the grace period the build would drop a just-played game
+    instead of predicting it. It also bounds the case above: a game whose
+    play-by-play never arrives is retired once the grace period expires, rather
+    than pinning the board to its week forever. A game with an unparseable date
     stays pending rather than being silently dropped.
     """
     ps = sched[sched["season"] == project_season]
@@ -54,7 +66,12 @@ def projected_frames(sched, project_season, gdf, team_games, clim, ref_date):
         return None, None, None
     kickoff = pd.to_datetime(ps["gameday"], errors="coerce").dt.date
     stale = kickoff < ref_date - timedelta(days=config.PROJECT_STALE_DAYS)
-    pending = ps[ps["home_score"].isna() & ~stale]
+    # ``gdf`` is built from play-by-play, so its game_ids are exactly the games
+    # that already have real rows. Everything else this season still needs a
+    # shell row to be predicted from -- including a game that has finished but
+    # whose play-by-play has not been published yet.
+    played = set(gdf["game_id"]) if gdf is not None and len(gdf) else set()
+    pending = ps[~ps["game_id"].isin(played) & ~stale]
     if pending.empty:
         return None, None, None
     target = int(pending["week"].min())

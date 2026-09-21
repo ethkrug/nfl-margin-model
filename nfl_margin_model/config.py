@@ -147,13 +147,16 @@ QB_INACTIVE_STATUSES = ("Out", "Doubtful")
 QB_DEPTH_SENTINEL = 3
 
 # --- Projected (not-yet-played) games -----------------------------------
-# A scheduled game with no score is normally still upcoming, but a cancelled
-# game (e.g. 2022 BUF-CIN week 17) never gets one, and left alone it would pin
-# the projected week there for the rest of the season. So a scoreless game whose
-# kickoff is more than this many days past is treated as never-to-be-played.
-# The grace period is what separates that from ordinary feed lag: scores post
-# within hours, so 3 days clears even a Monday nighter while still retiring a
-# cancellation within the same week.
+# A scheduled game with no play-by-play is normally still upcoming, but a
+# cancelled game (e.g. 2022 BUF-CIN week 17) never gets any, and left alone it
+# would pin the projected week there for the rest of the season. So a game still
+# missing play-by-play more than this many days past its kickoff is treated as
+# never-to-be-played.
+# The grace period is what separates that from ordinary feed lag: play-by-play
+# lands on the nightly release, so 3 days clears even a Monday nighter while
+# still retiring a cancellation within the same week. It also bounds the window
+# in which a finished game sits on the board scored from the schedule but not
+# yet backed by play-by-play -- see projection.projected_frames.
 PROJECT_STALE_DAYS = 3
 
 # --- Advanced-metric imputation -----------------------------------------
