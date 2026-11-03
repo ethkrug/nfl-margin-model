@@ -239,6 +239,16 @@ DROP_BEFORE_MODEL = [
     # "designated QB1 started X%" line). The pre-game half of the same signal --
     # starter_inactive, from the injury report on the named QB1 -- is a feature.
     "qb_depth_order", "is_designated_starter",
+    # ...and the opponent's copy, which features.add_matchup_features creates
+    # (it keeps every opp_qb* column) and which used to slip through to the
+    # model: it was the 8th most influential feature, all of it post-kickoff
+    # information. Removing it costs 0.08 RMSE on the 2024/2025 holdouts -- the
+    # amount the leak was flattering the model by.
+    "opp_qb_depth_order",
+    # The pre-game replacement for both is qb_depth_pregame / opp_qb_depth_pregame
+    # (qb.pregame_starters), which ARE features; the starter's id and which feed
+    # named him are bookkeeping.
+    "qb_pregame_id", "qb_pregame_source",
     # Pre-offseason-pull QB quality: projection-path scaffolding, not a feature
     # (it is a near-duplicate of qb_quality_* and would just add noise).
     "qb_quality_base_5", "qb_quality_base_10",
@@ -354,6 +364,13 @@ STARTER_OUT_STATUSES = ("Out", "Doubtful")
 PRECIP_KEYWORDS = ("rain", "snow", "shower", "sleet", "drizzle", "flurr", "wintry")
 
 # --- XGBoost hyper-parameters (tuned in the notebook) --------------------
+# Trees/depth/learning rate re-checked 2026-11 on the leak-free feature set:
+# depth 1-6 x lr 0.01/0.02/0.05 x 50-3000 trees on the 2016-2023 holdouts (each
+# trained on every earlier season), leaders re-run on 5 seeds. The current
+# setting sits on a flat optimum: every depth-1-3 setting with lr x trees ~ 5-10
+# scored 13.165-13.181 (seed sd ~0.006), this one 13.171; depth 4+ and longer
+# runs overfit. The runner-up (lr 0.01, 500 trees) also tied on 2024/2025
+# (12.76 vs 12.75), so nothing here is worth changing.
 XGB_PARAMS = dict(
     n_estimators=300,
     learning_rate=0.02,   # 0.02 beat 0.01 on both walk-forward holdouts (2024, 2025)

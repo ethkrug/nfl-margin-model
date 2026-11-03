@@ -175,6 +175,89 @@ def _build_role_features(starters, qb_depth, qb1, injuries):
     return s[["game_id", "team", "qb_depth_order", "is_designated_starter", "starter_inactive"]]
 
 
+def pregame_starters(team_games, qb_depth, injuries, qb_game):
+    """Who each team is expected to start at QB, using only pre-game feeds.
+
+    For every team-game (played or projected):
+
+    1. the candidate list is that week's published depth chart, in chart
+       order; when the team has no chart that week, it is the team's QBs from
+       its previous game ranked by dropbacks (the play-by-play carries no snap
+       counts, and dropbacks are the QB's plays);
+    2. any candidate the week's injury report rules out
+       (:data:`config.QB_INACTIVE_STATUSES`) is taken off the list;
+    3. the first remaining candidate is the expected starter, and
+       ``qb_depth_pregame`` is his position on the original list (1 = the
+       team's QB1 is playing, 2 = the backup, ...).
+
+    This is the pre-game counterpart of ``qb_depth_order``, which ranks the QB
+    who actually took the most dropbacks -- known only after kickoff, so never a
+    feature. If every candidate is ruled out the list cannot answer, so QB1 is
+    kept (as :func:`projection.available_starter` does). No list at all (a
+    team's first game on record) gives no starter and depth 1.
+
+    Returns ``game_id, team, qb_pregame_id, qb_depth_pregame, qb_pregame_source``.
+    """
+    keys = team_games[["game_id", "season", "week", "team"]].drop_duplicates(["game_id", "team"]).copy()
+    keys["season"] = keys["season"].astype(int)
+    keys["week"] = keys["week"].astype(int)
+
+    # Ruled-out players by (season, week, player). Joined on the player id alone:
+    # ids are unique league-wide, which sidesteps club-code differences between
+    # the injury feed and the frame.
+    inj = injuries[["season", "week", "gsis_id", "report_status"]].copy()
+    for c in ("season", "week"):
+        inj[c] = pd.to_numeric(inj[c], errors="coerce")
+    inj = inj.dropna(subset=["season", "week", "gsis_id"])
+    inj = inj[inj["report_status"].isin(config.QB_INACTIVE_STATUSES)]
+    out = set(zip(inj["season"].astype(int), inj["week"].astype(int), inj["gsis_id"]))
+
+    def pick(cands, source):
+        """First not-ruled-out candidate per (game_id, team); cands are ordered."""
+        cands = cands.copy()
+        cands["pos"] = cands.groupby(["game_id", "team"]).cumcount() + 1
+        cands["is_out"] = [(s, w, p) in out for s, w, p in
+                           zip(cands["season"], cands["week"], cands["player_id"])]
+        ok = cands[~cands["is_out"]].groupby(["game_id", "team"], as_index=False).first()
+        first = cands.groupby(["game_id", "team"], as_index=False).first()
+        res = first[["game_id", "team"]].merge(
+            ok[["game_id", "team", "player_id", "pos"]], on=["game_id", "team"], how="left")
+        # Everyone ruled out -> keep QB1 (depth 1).
+        allout = res["player_id"].isna()
+        res.loc[allout, "player_id"] = first.loc[allout.to_numpy(), "player_id"].to_numpy()
+        res.loc[allout, "pos"] = 1
+        res["source"] = source
+        return res
+
+    # 1) the published chart for the team's own week.
+    chart = keys.merge(qb_depth, on=["season", "week", "team"], how="inner")
+    chart = chart.sort_values(["game_id", "team", "depth_rank", "player_id"], kind="mergesort")
+    from_chart = pick(chart, "depth_chart")
+
+    # 2) no chart -> the previous game's QBs by dropbacks.
+    rest = keys.merge(from_chart[["game_id", "team"]], on=["game_id", "team"],
+                      how="left", indicator=True)
+    rest = rest[rest["_merge"] == "left_only"].drop(columns="_merge")
+    order = (team_games[["game_id", "season", "week", "team"]]
+             .drop_duplicates(["game_id", "team"])
+             .sort_values(["team", "season", "week"], kind="mergesort"))
+    order["prev_game_id"] = order.groupby("team")["game_id"].shift(1)
+    rest = rest.merge(order[["game_id", "team", "prev_game_id"]], on=["game_id", "team"], how="left")
+    prev = qb_game[["game_id", "posteam", "passer_player_id", "qb_dropbacks"]].rename(
+        columns={"game_id": "prev_game_id", "posteam": "team", "passer_player_id": "player_id"})
+    snaps = rest.merge(prev, on=["prev_game_id", "team"], how="inner")
+    snaps = snaps.sort_values(["game_id", "team", "qb_dropbacks", "player_id"],
+                              ascending=[True, True, False, True], kind="mergesort")
+    from_prev = pick(snaps, "prior_game") if len(snaps) else from_chart.iloc[0:0]
+
+    res = keys[["game_id", "team"]].merge(
+        pd.concat([from_chart, from_prev], ignore_index=True), on=["game_id", "team"], how="left")
+    res["source"] = res["source"].fillna("none")
+    res["pos"] = res["pos"].fillna(1).astype(int)
+    return res.rename(columns={"player_id": "qb_pregame_id", "pos": "qb_depth_pregame",
+                               "source": "qb_pregame_source"})
+
+
 def _filled(values, fill):
     """``values`` as a float array with NaN replaced by ``fill`` (scalar or array)."""
     a = np.asarray(values, dtype=float)
@@ -465,6 +548,10 @@ def add_qb_features(team_games_roll, play_by_play_df, depth_charts, injuries,
     team_games_roll = team_games_roll.merge(
         starters_merge, on=["game_id", "team"], how="left"
     )
+    # Expected starter + his depth position from pre-game feeds only, for every
+    # row including projected ones (see pregame_starters).
+    pre = pregame_starters(team_games_roll, qb_depth, injuries, qb_game)
+    team_games_roll = team_games_roll.merge(pre, on=["game_id", "team"], how="left")
 
     # 9) any team-game with no identified starter -> treat as an unknown deep backup.
     team_games_roll["qb_prior_starts"] = team_games_roll["qb_prior_starts"].fillna(0)

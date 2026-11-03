@@ -435,7 +435,7 @@ def add_matchup_features(team_games_roll, windows=config.ROLL_WINDOWS):
         c for c in (
             [f"qb_quality_{w}" for w in config.QB_WINDOWS]
             + ["qb_depth_order", "is_designated_starter", "starter_inactive",
-               "qb_prior_starts"]
+               "qb_prior_starts", "qb_depth_pregame"]
         )
         if c in tgr.columns
     ]
