@@ -25,12 +25,6 @@ Walk-forward holdouts, at the team-game level (`python -m nfl_margin_model.evalu
 
 168 features, 285 games per season, each contributing one row per team.
 
-Earlier versions of this page reported 12.68 pooled. That number was flattered
-by a feature that leaked the result: the depth-chart rank of the opponent QB
-who *actually* took the most snaps, known only after kickoff. Removing it cost
-0.08 RMSE (see [Leakage safety](#leakage-safety)); every number here is without
-it.
-
 **2024 and 2025 are not a fully clean test of this model.** Several older
 settings were chosen by looking at them (the learning rate, the prior-season
 blend weights, which redundant columns to drop), which tilts these two seasons
@@ -321,11 +315,10 @@ constraint the code is most careful about:
   203 columns on the 7,284 earlier rows;
 - the QB representing a game is the one named pre-game, never the one who turned
   out to play most (see above), and the features derived from who actually
-  played are excluded from the model — including the opponent's copy of
-  `qb_depth_order`, which `add_matchup_features` used to pass through (it keeps
-  every `opp_qb*` column). That leak was the 8th most influential feature and
-  was worth 0.08 RMSE on 2024/2025; its pre-game replacement is
-  `opp_qb_depth_pregame`;
+  played are excluded from the model for both teams, the opponent's copy of
+  `qb_depth_order` included (`add_matchup_features` builds `opp_qb*` copies of
+  every QB column). The pre-game depth position of each team's expected starter,
+  `qb_depth_pregame` / `opp_qb_depth_pregame`, stands in for them;
 - the continuity-weighted decay uses only games before the one being built, and
   each season's carryover and continuity estimates come only from earlier
   seasons. Verified by cutting every feed off after 2024 week 9 and rebuilding,

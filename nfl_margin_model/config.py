@@ -264,10 +264,7 @@ DROP_BEFORE_MODEL = [
     # starter_inactive, from the injury report on the named QB1 -- is a feature.
     "qb_depth_order", "is_designated_starter",
     # ...and the opponent's copy, which features.add_matchup_features creates
-    # (it keeps every opp_qb* column) and which used to slip through to the
-    # model: it was the 8th most influential feature, all of it post-kickoff
-    # information. Removing it costs 0.08 RMSE on the 2024/2025 holdouts -- the
-    # amount the leak was flattering the model by.
+    # (it keeps every opp_qb* column), excluded for the same reason.
     "opp_qb_depth_order",
     # The pre-game replacement for both is qb_depth_pregame / opp_qb_depth_pregame
     # (qb.pregame_starters), which ARE features; the starter's id and which feed
