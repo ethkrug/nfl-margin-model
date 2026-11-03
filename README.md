@@ -32,7 +32,7 @@ toward the configuration they were tuned on. The current team-form features
 were chosen on 2014–2023 instead and then checked once on 2024/2025 and on the
 2026 games played so far, which nothing was tuned on:
 
-| Team form | 2014–2023 (chosen on) | 2024/2025 | 2026 weeks 1–8 (120 games) |
+| Team form | 2014–2023 (chosen on) | 2024/2025 | 2026 through week 8's Sunday games (120) |
 |---|---|---|---|
 | 5- and 10-game windows (previous) | 13.305 | **12.73** | 12.45 |
 | Slow decay across seasons, no continuity | **13.244** | 12.85 | 12.55 |
@@ -77,14 +77,14 @@ the frontend and the in-season scorecard only, as something to compare against.
 
 `python -m nfl_margin_model.scorecard` grades the games already played this
 season week by week: the model's line and the market's closing spread, both
-against the actual margin. Through 2026 week 8 (120 games):
+against the actual margin. Through 2026 week 8 (all 121 games):
 
 | | MAE | RMSE | Straight-up winners |
 |---|---|---|---|
-| Model | 9.71 | 12.37 | 60.5% |
-| Market closing spread | 9.48 | 12.09 | 66.4% |
+| Model | 9.79 | 12.44 | 60.0% |
+| Market closing spread | 9.57 | 12.18 | 65.8% |
 
-The model's line finished closer to the result than the market's in 40% of
+The model's line finished closer to the result than the market's in 40.5% of
 games. It takes `--cache`, or `--preds` to score an existing payload without
 retraining, and `--csv` to write the table.
 
