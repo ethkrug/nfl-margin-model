@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import config
+from . import config, continuity as continuity_mod
 
 
 # --------------------------------------------------------------------------
@@ -162,7 +162,8 @@ def build_team_games(game_df, team_game_sums):
 # 4. Opponent-adjusted EPA + rolling features
 # --------------------------------------------------------------------------
 def build_rolling_features(team_games, windows=config.ROLL_WINDOWS, adjust_defense=True,
-                           prior_weight=config.roll_prior_weight, seed_shrink=1.0):
+                           prior_weight=config.roll_prior_weight, seed_shrink=1.0,
+                           continuity=None):
     """Opponent-adjust EPA (offense AND defense), then roll all stats.
 
     Leakage-safe: every rolling/expanding mean is ``shift(1)``-ed so a row only
@@ -352,6 +353,12 @@ def build_rolling_features(team_games, windows=config.ROLL_WINDOWS, adjust_defen
         ignore_index=True,
     )
 
+    # Continuity-weighted decay averages of the same per-game values
+    # (continuity.py); ``continuity`` is continuity.inputs(...) or None.
+    if continuity is not None and config.CONTINUITY_DECAY:
+        team_games_roll = continuity_mod.add_decay(
+            team_games_roll, stat_cols, continuity, config.CONTINUITY_SUFFIX)
+
     drop_after_roll = stat_cols + rolled_out_epa + opponent_strength_cols
     team_games_roll = team_games_roll.drop(columns=drop_after_roll, errors="ignore")
     return team_games_roll
@@ -414,7 +421,7 @@ def add_game_context(team_games_roll, game_df, precip=None):
 # --------------------------------------------------------------------------
 # 6. Matchup / opponent features
 # --------------------------------------------------------------------------
-def add_matchup_features(team_games_roll, windows=config.ROLL_WINDOWS):
+def add_matchup_features(team_games_roll, windows=None):
     """Attach the *opponent's* rolled strength and build matchup edges.
 
     The base pipeline gives each row only its own team's rolled form. To predict
@@ -428,6 +435,7 @@ def add_matchup_features(team_games_roll, windows=config.ROLL_WINDOWS):
     * ``edge_net_<epa>``  -- offensive edge minus defensive edge
     * ``edge_qb_quality_<w>`` -- my starting-QB quality minus the opponent's
     """
+    windows = config.matchup_windows() if windows is None else windows
     tgr = team_games_roll
     roll_suffixes = tuple(f"_roll{w}" for w in windows)
 

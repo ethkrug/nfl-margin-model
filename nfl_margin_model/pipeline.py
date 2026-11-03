@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from . import advanced, config, console, data, features, model, qb, schedule
+from . import advanced, config, console, continuity, data, features, model, qb, schedule
 
 
 @dataclass
@@ -61,18 +61,23 @@ def run(show_previews: bool = True) -> Result:
     adv_cols = [c for c in adv.columns if c not in ("game_id", "team")]
     team_games = advanced.fill_missing(team_games, adv_cols, config.TRAIN_MAX)
     console.step("Opponent-adjusting EPA (offense + defense) and rolling")
-    team_games_roll = features.build_rolling_features(team_games)
+    # Schedules, depth charts and injuries feed the continuity-weighted decay
+    # (coach and expected-starter continuity), so they load before rolling. The
+    # new depth-chart schema needs kickoff dates to map snapshots onto weeks.
+    schedules = data.load_schedules()
+    depth_charts = data.load_depth_charts(schedules)
+    injuries = data.load_injuries()
+    cont = (continuity.inputs(play_by_play_df, depth_charts, injuries, schedules)
+            if config.CONTINUITY_DECAY else None)
+    team_games_roll = features.build_rolling_features(team_games, continuity=cont)
     console.step("Attaching game context + weather interactions")
     precip = advanced.build_precip(play_by_play_df)
     team_games_roll = features.add_game_context(team_games_roll, game_df, precip)
 
     # --- 4. QB features ------------------------------------------------
     console.rule("4 · Starting-QB features")
-    # Loaded before the depth charts: the new daily-snapshot schema needs the
-    # kickoff dates to be mapped onto weeks. Reused by stage 4b below.
-    schedules = data.load_schedules()
-    depth_charts = data.load_depth_charts(schedules)
-    injuries = data.load_injuries()
+    # schedules / depth_charts / injuries were loaded in stage 3 (the decay
+    # needs them); reused here and by stage 4b below.
     team_games_roll, replacement_epa, _ = qb.add_qb_features(
         team_games_roll, play_by_play_df, depth_charts, injuries
     )

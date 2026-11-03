@@ -35,8 +35,32 @@ WEEKLY_YEARS = range(2020, 2025)
 PBP_YEARS = range(2010, 2026)
 
 # --- Rolling team features ----------------------------------------------
-# Windows (in games) used to roll opponent-adjusted team stats.
-ROLL_WINDOWS = (5, 10)
+# Windows (in games) used to roll opponent-adjusted team stats. The long memory
+# that the 10-game window used to provide comes from the continuity-weighted
+# decay below; the 5-game window stays as the read on recent form.
+ROLL_WINDOWS = (5,)
+
+# Continuity-weighted decay average of every rolled stat (continuity.py), named
+# ``<stat>_roll<CONTINUITY_SUFFIX>``. A linear fade over the team's previous
+# ``fade_games`` games, across season boundaries for ``lookback_seasons``, with
+# earlier seasons carried relative to the league and shrunk by how much each
+# stat carries over and by QB / head-coach continuity -- all measured from
+# seasons before the one being built. Set CONTINUITY_DECAY = None to go back to
+# fixed windows only (then restore ROLL_WINDOWS = (5, 10)).
+CONTINUITY_SUFFIX = "cd"
+CONTINUITY_DECAY = dict(
+    fade_games=34,             # weight 1 - (k-1)/34 for the game k games back
+    lookback_seasons=2,        # 1 season back scored worse; 3 added nothing
+    prior_team_seasons=20.0,   # pulls each continuity multiplier toward 1
+    rho_max=0.75,              # cap on a stat's season-to-season carryover
+    mult_max=1.3,              # cap on a continuity multiplier
+)
+
+
+def matchup_windows():
+    """Rolled-column labels the matchup edges are built for."""
+    extra = (CONTINUITY_SUFFIX,) if CONTINUITY_DECAY else ()
+    return tuple(ROLL_WINDOWS) + extra
 
 # Prior->current blend for the early-season rolling window. Before a team has a
 # full window of current-season games, the empty slots are filled by the

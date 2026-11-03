@@ -16,8 +16,8 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
 
-from . import (advanced, config, console, data, features, fetch, model,
-               projection, qb, schedule, weather)
+from . import (advanced, config, console, continuity, data, features, fetch,
+               model, projection, qb, schedule, weather)
 
 # The model trains on every season <= TRAIN_THROUGH; the season(s) after it are
 # the pure hold-out shown to users. Bump each year (2025 -> pick 2026, ...).
@@ -33,6 +33,7 @@ DRIVERS = {  # frame column -> human label (value > 0 favours the home team)
     "edge_off_epa_roll5": "Offense edge",
     "edge_def_epa_roll5": "Defense edge",
     "edge_net_pass_epa_roll5": "Passing matchup edge (last 5 games)",
+    "edge_net_epa_rollcd": "Net EPA edge (continuity-weighted)",
 }
 
 
@@ -139,8 +140,11 @@ def build_frame(pbp, depth, inj, sched, project_season=None,
             # keep tg in the (team, season, week) order the roller produces.
             tg = tg.sort_values(["team", "season", "week"]).reset_index(drop=True)
 
+    cont = (continuity.inputs(pbp, depth, inj, sched)
+            if config.CONTINUITY_DECAY else None)
     tgr = features.build_rolling_features(tg, adjust_defense=True,
-                                          prior_weight=prior_weight, seed_shrink=seed_shrink)
+                                          prior_weight=prior_weight, seed_shrink=seed_shrink,
+                                          continuity=cont)
     tgr = features.add_game_context(tgr, gdf, precip)
     tgr, replacement, qb_latest = qb.add_qb_features(
         tgr, pbp, depth, inj,
