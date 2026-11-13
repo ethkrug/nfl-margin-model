@@ -26,8 +26,15 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # nfl_data_py 0.3.3 declares pandas<2, which conflicts with pandas>=2 in
+      # requirements.txt, so pip can't resolve them together. Install it
+      # without its declared deps (as the local env effectively does) and pull
+      # in its remaining runtime deps by hand. numpy<2 matches the local env.
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          grep -v '^nfl_data_py' requirements.txt > /tmp/requirements-ci.txt
+          pip install -r /tmp/requirements-ci.txt "numpy<2" appdirs fastparquet
+          pip install --no-deps "nfl_data_py>=0.3.3"
 
       # Only the --no-logos build is tracked in git (see .gitignore).
       - name: Generate web app
