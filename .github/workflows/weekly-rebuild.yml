@@ -26,15 +26,18 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      # nfl_data_py 0.3.3 declares pandas<2, which conflicts with pandas>=2 in
-      # requirements.txt, so pip can't resolve them together. Install it
-      # without its declared deps (as the local env effectively does) and pull
-      # in its remaining runtime deps by hand. numpy<2 matches the local env.
+      # Pinned to the versions the model is built and checked with locally.
+      # requirements.txt can't be installed as-is: nfl_data_py 0.3.3 declares
+      # pandas<2, so it goes in with --no-deps and its runtime deps are listed
+      # by hand. Newer pandas (3.1) also breaks a merge_asof in data.py, so
+      # bump these deliberately, not by letting pip float.
       - name: Install dependencies
         run: |
-          grep -v '^nfl_data_py' requirements.txt > /tmp/requirements-ci.txt
-          pip install -r /tmp/requirements-ci.txt "numpy<2" appdirs fastparquet
-          pip install --no-deps "nfl_data_py>=0.3.3"
+          pip install pandas==3.0.2 numpy==1.26.4 scikit-learn==1.6.1 \
+                      scipy==1.13.1 xgboost==3.0.5 pyarrow==16.1.0 \
+                      pillow==11.0.0 appdirs==1.4.4 fastparquet==2024.11.0 \
+                      cramjam==2.11.0 fsspec==2024.12.0
+          pip install --no-deps nfl_data_py==0.3.3
 
       # Only the --no-logos build is tracked in git (see .gitignore).
       - name: Generate web app
