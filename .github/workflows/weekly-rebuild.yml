@@ -1,0 +1,47 @@
+name: Weekly web app rebuild
+
+on:
+  schedule:
+    # Thursdays 13:00 UTC = 8am EST (9am EDT before early November). Cron here
+    # is always UTC, so it shifts an hour against Eastern time across DST.
+    - cron: "0 13 * * 4"
+  workflow_dispatch: # adds a "Run workflow" button in the Actions tab
+
+permissions:
+  contents: write # needed to push the rebuilt files back to main
+
+concurrency:
+  group: weekly-rebuild
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Only the --no-logos build is tracked in git (see .gitignore).
+      - name: Generate web app
+        run: python -m nfl_margin_model.frontend.generate --no-logos
+
+      - name: Commit and push if changed
+        run: |
+          git add nfl_margin_model/frontend/index_no_logos.html \
+                  nfl_margin_model/frontend/preds_no_logos.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Rebuild the web app ($(date -u +%Y-%m-%d))"
+          git push
