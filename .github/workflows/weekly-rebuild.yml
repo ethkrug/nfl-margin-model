@@ -16,10 +16,36 @@ concurrency:
 
 jobs:
   rebuild:
-    runs-on: ubuntu-latest
+    # Apple Silicon, like the machine the model is developed on: XGBoost's hist
+    # trees are not bit-identical across CPU architectures, so an x86 runner
+    # drifts ~0.1-0.5 pts of margin from local builds.
+    runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # Pro Bowl selections are Pro-Football-Reference exports we may not
+      # redistribute, so they live in a PRIVATE repo, read with a read-only
+      # deploy key. They are copied into the gitignored pro-bowl/ dir and never
+      # committed here; only the two generated files below are ever added.
+      - name: Fetch private Pro Bowl data
+        uses: actions/checkout@v4
+        with:
+          repository: ethkrug/nfl-margin-model-pro-bowl-data
+          ssh-key: ${{ secrets.PRO_BOWL_DEPLOY_KEY }}
+          path: _pro_bowl_data
+          persist-credentials: false
+
+      - name: Install Pro Bowl data (fail if missing)
+        run: |
+          cp _pro_bowl_data/pro-bowlers* nfl_margin_model/pro-bowl/
+          rm -rf _pro_bowl_data
+          n=$(ls nfl_margin_model/pro-bowl/pro-bowlers*.csv 2>/dev/null | wc -l)
+          echo "Pro Bowl CSVs present: $n"
+          if [ "$n" -lt 1 ]; then
+            echo "::error::No Pro Bowl exports -- refusing to build a degraded model."
+            exit 1
+          fi
 
       - uses: actions/setup-python@v5
         with:
@@ -33,15 +59,24 @@ jobs:
       # bump these deliberately, not by letting pip float.
       - name: Install dependencies
         run: |
+          brew install libomp  # XGBoost's macOS wheel needs OpenMP
           pip install pandas==3.0.2 numpy==1.26.4 scikit-learn==1.6.1 \
                       scipy==1.13.1 xgboost==3.0.5 pyarrow==16.1.0 \
                       pillow==11.0.0 appdirs==1.4.4 fastparquet==2024.11.0 \
                       cramjam==2.11.0 fsspec==2024.12.0
           pip install --no-deps nfl_data_py==0.3.3
 
-      # Only the --no-logos build is tracked in git (see .gitignore).
+      # Only the --no-logos build is tracked in git (see .gitignore). The grep
+      # is a second guard: if the pipeline still found no Pro Bowl exports, the
+      # build is degraded and must not be committed.
       - name: Generate web app
-        run: python -m nfl_margin_model.frontend.generate --no-logos
+        run: |
+          set -o pipefail
+          python -m nfl_margin_model.frontend.generate --no-logos 2>&1 | tee generate.log
+          if grep -q "no exports found" generate.log; then
+            echo "::error::Pipeline ran without Pro Bowl data -- not committing."
+            exit 1
+          fi
 
       - name: Commit and push if changed
         run: |
